@@ -1,0 +1,25 @@
+{
+	"Settings" : 
+	{ 	"ICI_signatories_file" :"ICI_members_v2025.csv",
+	  	"IMAGE_PROJECT" : "ClimatePolicy",
+	  	"IMAGE_START_YEAR" : 1971,
+	  	"HIST_YEAR" : 2020,
+		"Baseline_Scenario":"CP",
+		"Members_Scenario":"Initiative Members",
+	  	"Variable_Bunkers":["Emissions|CO2|Energy|Demand|Transportation|Aviation|InternationalRegional"]
+	},
+	"Init_Parameters_ICIs" : [
+		{ "Nr" : 9,
+			"Initiative" : "Cooling", 
+			"Scenario_individual" : "COPInitiatives_CPBL_May2025",
+			"Sector" : "Energy Supply",
+			"Subsector" : "Electricity and Heat", 
+			"GHG_subsector_variable" : ["Emissions|CO2|Energy|Supply|Electricity and Heat"],
+			"Hist_variable" : "HDD",
+			"GHG_individual_variable" : ["Emissions|CO2|Demand|Residential and Commercial|Cooling (indirect)"],
+			"Only_global" : "no"
+			}
+		]
+}	
+
+

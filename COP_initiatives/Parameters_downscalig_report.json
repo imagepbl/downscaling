@@ -1,0 +1,62 @@
+{
+	"Settings" : 
+	{ 	"PolicyScenariosLabels" : ["Current_policies", "NDC", "Global_policy_2.0C", "Global_policy_1.5C"],
+	  	"PolicyScenariosIMAGENames" : ["CP_GI", "NDC_GI", "SSP2_SPA0_26I_D_GI", "SSP2_SPA0_19I_D_GI"],
+		"AdditionalInitiativeSenarios" : [],
+	  	"dir_RT" : "X:/user/roelfsemam/timer/COP_Initiatives_3_4/9_Python/COP_Initiatives/data/input/paper",
+	  	"OUTPUT_LOCATION" : "2_TIMER/outputlib/TIMER_3_3",
+	  	"IMAGE_START_YEAR" : 1971,
+	  	"HIST_YEAR" : 2020
+	},
+	"Emissions_Coverage": 
+	{	"Sector": ["Energy Supply", "Energy Supply",
+	               "Energy Demand", "Energy Demand",
+				   "Total"],
+		"Subsector": ["Electricity", "Electricity", 
+		              "Total", "Total",
+					  "Total"],
+		"GHG": ["CO2", "N2O", 
+				"CO2", "N2O", 
+				"CH4"],
+		"Variable": ["Emissions|CO2|Energy|Supply|Electricity", "Emissions|N2O|Energy|Supply|Electricity", 
+		             	"Emissions|CO2|Energy|Demand excl bunkers", "Emissions|N2O|Energy|Demand", 
+					 	"Emissions|CH4"]
+	},
+	"Init_Parameters" : [
+		{ "Nr" : 1,
+			"Initiative" : "Methane", 
+			"Scenario" : "Methane_3R2E",
+			"PolicyScenarios" : ["CP_GI", "NDC_GI", "SSP2_SPA0_19I_D_GI"],
+			"Sector" : "Total",
+			"Subsector" : "Total", 
+			"Hist_variable" : "Emissions|CH4",
+			"GHG_subsector_variable" : ["Emissions|CH4"],
+			"GHG_reduction_variable" : ["Emissions|CH4"],				
+			"Regions" : ["2","11","12","18","20","28"]
+		},
+		{ "Nr" : 8.1,
+			"Initiative" : "Renewable", 
+			"Scenario" : "Methane_3R2E",
+			"PolicyScenarios" : ["CP_GI", "NDC_GI", "SSP2_SPA0_19I_D_GI"],
+			"Sector" : "Energy Supply",
+			"Subsector" : "Electricity", 
+			"Hist_variable" : "Emissions|CO2|Energy|Supply|Electricity",
+			"GHG_subsector_variable" : ["Emissions|CO2|Energy|Supply|Electricity", "Emissions|N2O|Energy|Supply|Electricity"],
+			"GHG_reduction_variable" : ["Emissions|CO2|Energy|Supply|Electricity", "Emissions|N2O|Energy|Supply|Electricity"],
+			"Regions" : ["2","11","12","18","20","28"]
+		},
+		{ "Nr" : 8.2,
+			"Initiative" : "Efficiency", 
+			"Scenario" : "Methane_3R2E",
+			"PolicyScenarios" : ["CP_GI", "NDC_GI", "SSP2_SPA0_19I_D_GI"],
+			"Sector" : "Energy Demand",
+			"Subsector" : "Total", 
+			"Hist_variable" : "Emissions|CO2|Energy|Demand excl bunkers",
+			"GHG_subsector_variable" : ["Emissions|CO2|Energy|Demand excl bunkers", "Emissions|N2O|Energy|Demand"],
+			"GHG_reduction_variable" : ["Emissions|CO2|Energy|Demand excl bunkers", "Emissions|N2O|Energy|Demand"],
+			"Regions" : ["2","11","12","18","20","28"]
+		}
+		]
+}	
+
+
