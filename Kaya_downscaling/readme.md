@@ -120,5 +120,5 @@ pixi update
 
 # 2. IMAGE modelling
 
-the country_to_regions.csv file that gives the model regions and included countries can be found at:
+The country_to_regions.csv file that gives the model regions and included countries and image_region_numbers.csv that maps the region names and numbers can be found at:
 https://github.com/imagepbl/geospatial-metadata/tree/main/mappings
