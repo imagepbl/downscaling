@@ -1,0 +1,63 @@
+{   "general": {
+        "R_SCRIPT_PATH" : "C:/Program Files/R/R-4.1.1/bin/Rscript.exe",
+        "R_SCRIPT_PATH_keep" :"C:/Users/Roelf003/AppData/Local/Programs/R/R-4.5.1/bin/Rscript.exe"
+        },
+    "grid":
+        {"run": {
+            "dir_population_2UP_GHSL_M1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_GHSL_2024_M1",
+            "dir_population_2UP_GHSL_M3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_GHSL_2024_M3",
+            "dir_population_2UP_M1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_M1",
+            "dir_population_2UP_M3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_M3",
+            "dir_population_Wang_v2_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Wang/processed_version_2",
+            "dir_population_Wang_v3_run" :  "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Wang/processed_version_3",
+            "dir_population_Zhuang_v1_run" :"Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Zhuang/processed_version_1",
+            "dir_population_Murakami_v3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Murakami/processed_version_3",
+            "dir_population_Murakami_v2021_1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Murakami/processed_version_2021_1",
+            "dir_population_COMPASS_v2_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/COMPASS/processed_version_2",
+            "dir_gdp_ppp_Wang_v7_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/processed/Wang/processed_version_7",
+            "dir_gdp_ppp_Murakami_v3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/processed/Murakami/processed_version_3",
+            "dir_gdp_ppp_Murakami_v2021_1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/processed/Murakami/processed_version_2021_1",
+            "dir_gdp_ppp_COMPASS_v2_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/processed/COMPASS/processed_version_2",
+            "dir_emissions_EDGAR_2024_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/processed/EDGAR/2024",
+            "dir_emissions_CEDS_CMIP7_v2025_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/processed/CEDS_CMIP7/2025_04_18"
+        },
+        "processed": {
+            "dir_population_processed" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed",
+            "dir_gdp_ppp_processed" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/processed",
+            "dir_emissions_processed" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/processed"
+            },
+        "original": {
+            "dir_population_2UP_GHSL_M3_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/2UP/TowardsAnUrbanPreview_2024_GHSL2014_M3/results/LatLong_World",
+            "dir_population_2UP_GHSL_M1_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/2UP/TowardsAnUrbanPreview_2024_GHSL2014_M1/results/LatLong_World",
+            "dir_population_2UP_M1_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/2UP/TowardsAnUrbanPreview_2024_M1/results/LatLong_World",
+            "dir_population_2UP_M3_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/2UP/TowardsAnUrbanPreview_2024_M3/results/LatLong_World",
+            "dir_population_Wang_v2_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/Wang/version_2",
+            "dir_population_Wang_v3_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/Wang/version_3",
+            "dir_population_Zhuang_v1_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/Zhuang/version_1",
+            "dir_population_Murakami_v3_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/POP_GDP/Murakami/version_3/raster",
+            "dir_population_Murakami_v2021_1_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/Murakami/version_2021_1",
+            "dir_population_COMPASS_v2_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/COMPASS/version_2",
+            "dir_gdp_ppp_Wang_v7_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/Wang/version_7",
+            "dir_gdp_ppp_Murakami_v3_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/POP_GDP/Murakami/version_3/raster",
+            "dir_gdp_ppp_Murakami_v2021_1_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/Murakami/version_2021_1",
+            "dir_gdp_ppp_COMPASS_v2_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/COMPASS/version_2",
+            "dir_emissions_EDGAR_2024_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/EDGAR/2024/emissions_grid",
+            "dir_emissions_CEDS_CMIP7_original" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/CEDS_CMIP7/2025_04_18"
+            },
+        "keep":{
+                "dir_population_2UP_GHSL_M3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_GHSL_2024_M3",
+                "dir_population_Wang_v3_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Wang/processed_version_3",
+                "dir_gdp_ppp_Wang_v7_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/Wang/processed_version_7",
+                "dir_population_Zhuang_v1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Zhuang/processed_version_1"
+                }
+        },
+    "IAM":
+        {"IMAGE":
+            {
+            "file_IAM_model_country_region": "data/input/models/IMAGE/country_to_regions.csv",
+            "file_IAM_model_region_numbers": "data/input/models/IMAGE/image_region_numbers.csv",
+            "file_IAM_regions_grid": "data/input/models/IMAGE/IMAGE_GADM_regions_raster.nc"
+            }
+        }
+}
+

@@ -1,0 +1,12 @@
+{
+    "IMAGE": {"factor_GDP_PPP": 1.10774,
+              "factor_year_from": 2010,
+              "factor_year_to": 2005,
+              "model_unit_conversions": {"Emissions|CO2": 1e6,
+                                         "GDP|MER": 1e9,
+                                         "GDP|PPP": 1e9,
+                                         "Population": 1e6
+                                        }
+              }
+
+}
