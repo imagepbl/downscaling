@@ -12,6 +12,7 @@ PRINT_COLORS = {
     "purple":       "\033[95m",
     "cyan":         "\033[96m",
     "light_grey":   "\033[97m",
+    "orange":       "\033[38;2;255;165;0m",
 }
 
 def calc_hours_minutes_seconds(start: datetime, end: datetime) -> tuple:

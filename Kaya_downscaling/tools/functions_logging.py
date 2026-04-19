@@ -5,15 +5,6 @@ from pathlib import Path
 
 from tools.general_functions import PRINT_COLORS, replace_punctuation_in_filenames
 
-def cleanup_empty_logs(debug_logger, results_logger):
-    # Close all handlers to release file locks
-    for handler in debug_logger.handlers[:]:
-        handler.close()
-        debug_logger.removeHandler(handler)
-    for handler in results_logger.handlers[:]:
-        handler.close()
-        results_logger.removeHandler(handler)
-
 def init_logging(log_prefix='app', log_dir='log', console_level=logging.INFO,
                   results_to_console=False):
     """
@@ -38,8 +29,12 @@ def init_logging(log_prefix='app', log_dir='log', console_level=logging.INFO,
     results_logger = logging.getLogger('results')
 
     # Clear existing handlers
-    debug_logger.handlers.clear()
-    results_logger.handlers.clear()
+    for handler in debug_logger.handlers[:]:
+        handler.close()
+        debug_logger.removeHandler(handler)
+    for handler in results_logger.handlers[:]:
+        handler.close()
+        results_logger.removeHandler(handler)
 
     # Set levels
     debug_logger.setLevel(logging.DEBUG)
@@ -85,7 +80,5 @@ def init_logging(log_prefix='app', log_dir='log', console_level=logging.INFO,
     # Prevent loggers from propagating to root logger
     debug_logger.propagate = False
     results_logger.propagate = False
-
-    atexit.register(cleanup_empty_logs, debug_logger, results_logger)
 
     return debug_logger, results_logger

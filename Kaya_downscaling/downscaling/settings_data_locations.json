@@ -2,6 +2,13 @@
         "R_SCRIPT_PATH" : "C:/Program Files/R/R-4.1.1/bin/Rscript.exe",
         "R_SCRIPT_PATH_keep" :"C:/Users/Roelf003/AppData/Local/Programs/R/R-4.5.1/bin/Rscript.exe"
         },
+    "GADM": {
+        "dir_GADM_single" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/single",
+        "dir_GADM_geopackage" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/geopackage"
+        },
+    "US_Census": {
+        "dir_US_Census_TIGER" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/US_Census/TIGER"
+        },
     "grid":
         {"run": {
             "dir_population_2UP_GHSL_M1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/2UP/processed_GHSL_2024_M1",

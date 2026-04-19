@@ -45,7 +45,7 @@ def save_to_grid_tiff(dir_processed:Path,
                             width=width, height=height)
 
     for year in years:
-        data = xr_grid[varname].sel(time=year).values
+        data = xr_grid[varname].sel(time=year).values.astype(np.float32)
         # Ensure data is ordered north-to-south to match the transform
         if ys[0] < ys[-1]:
             data = data[::-1, :]
@@ -55,19 +55,22 @@ def save_to_grid_tiff(dir_processed:Path,
             stem = f"{replace_punctuation_in_filenames(varname)}{add_text}_{scenario}"
         print(f"Saving {varname} for year {year} to GeoTIFF: {stem}_{year}.tif")
         tif_file = dir_processed / f"{stem}_{year}.tif"
-        with rasterio.open(
-            tif_file,
-            "w",
-            driver="GTiff",
-            height=data.shape[0], width=data.shape[1],
-            count=1,
-            dtype=data.dtype,
-            crs=xr_grid.rio.crs,
-            transform=transform, #xr_grid.rio.transform(),
-            compress="LZW",
-            predictor=2,  # Improves compression for integer data
-            tiled=True,   # Better for large files
-            blockxsize=256, blockysize=256) as dst: dst.write(data, 1)
+        with rasterio.Env(GDAL_NUM_THREADS="ALL_CPUS"):
+            with rasterio.open(
+                tif_file,
+                "w",
+                driver="GTiff",
+                height=data.shape[0], width=data.shape[1],
+                count=1,
+                dtype=data.dtype,
+                crs=xr_grid.rio.crs,
+                transform=transform, #xr_grid.rio.transform(),
+                #compress="LZW",
+                compress="ZSTD",
+                zstd_level=1,  # 1 = fastest, 22 = best compression. For large files, 1 is usually the right trade-off.
+                predictor=3 if np.issubdtype(data.dtype, np.floating) else 2,
+                tiled=True,   # Better for large files
+                blockxsize=256, blockysize=256) as dst: dst.write(data, 1)
 
 
 def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", resolution_minutes: float = 0.5) -> None:
@@ -256,7 +259,7 @@ def plot_IPAT_summary(dir_processed:Path, add_txt:str,
                 # Replace the regular Axes cell with a Mercator GeoAxes
                 fig.delaxes(ax[i, j])
                 ax_map = fig.add_subplot(n_years, n_vars, i * n_vars + j + 1, projection=ccrs.Mercator())
-                plot_Mercator_projection_update(da_year, ax=ax_map, transform="log", title=f"{varname}\n{year}\n{add_txt}")
+                plot_Mercator_projection(da_year, ax=ax_map, transform="log", title=f"{varname}\n{year}\n{add_txt}")
                 ax_map.set_xlabel("Longitude")
                 ax_map.set_ylabel("Latitude")
 
@@ -269,20 +272,24 @@ def plot_IPAT_summary(dir_processed:Path, add_txt:str,
 
         return True
 
-def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, varname:str, year:int):
+def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, scenario:str, varname:str, year:int):
 
     # Create a regular axis for the histogram and a GeoAxes for the map (required by Cartopy)
     fig = plt.figure(figsize=(12, 4))
     ax_hist = fig.add_subplot(1, 2, 1)
     ax_map = fig.add_subplot(1, 2, 2, projection=ccrs.Mercator())
 
-    xr_year_plot[varname].plot.hist(ax=ax_hist, bins=100, color="lightblue", edgecolor="black", range=(0, 0.001))
-    ax_hist.set_title(f"Histogram of CO2 emissions")
+    data_year = xr_year_plot[varname].sel(time=year)
+    p001 = float(data_year.quantile(0.01))
+    p99 = float(data_year.quantile(0.99))
+
+    xr_year_plot[varname].sel(time=year).plot.hist(ax=ax_hist, bins=100, color="lightblue", edgecolor="black", range=(min(0, p001), p99))
+    ax_hist.set_title(f"Histogram of CO2 emissions for scenario {scenario} and year {year}")
     ax_hist.set_xlabel("CO2 emissions")
     ax_hist.set_ylabel("Frequency")
 
     # Plot on a Mercator GeoAxes
-    plot_Mercator_projection_update(xr_year_plot[varname].sel(time=year), ax=ax_map, title="CO2 emissions")
+    plot_Mercator_projection(xr_year_plot[varname].sel(time=year), ax=ax_map, title="CO2 emissions")
     ax_map.set_xlabel("Longitude")
     ax_map.set_ylabel("Latitude")
 
@@ -314,7 +321,7 @@ def plot_map(dir_processed:str, da:xr.DataArray, varname:str, add_txt:str, years
         fig.delaxes(ax[i,0])  # remove the regular Axes in that cell
         # rows, cols, index
         ax_map = fig.add_subplot(n_years, 1, i+1, projection=ccrs.Mercator())
-        plot_Mercator_projection_update(da_plot_coarsened_plot_year, ax=ax_map, transform="log", title=f"{varname}\n{year}")
+        plot_Mercator_projection(da_plot_coarsened_plot_year, ax=ax_map, transform="log", title=f"{varname}\n{year}")
         ax_map.set_xlabel("Longitude")
         ax_map.set_ylabel("Latitude")
 
@@ -322,7 +329,7 @@ def plot_map(dir_processed:str, da:xr.DataArray, varname:str, add_txt:str, years
 
     plt.savefig(f"{dir_processed}/figures/map_{varname.replace("|", "_").replace(" ", "_")}{add_txt}_cf_{coarse_factor}.png", dpi=300, bbox_inches="tight")
 
-def plot_hist(dir_processed: Path, ds:xr.Dataset, varname:str, add_txt:str, year:int):
+def plot_hist(dir_processed: Path, ds:xr.Dataset, scenario:str, varname:str, add_txt:str, year:int):
 
 
     # convert to dataframe and sort
@@ -333,7 +340,7 @@ def plot_hist(dir_processed: Path, ds:xr.Dataset, varname:str, add_txt:str, year
 
     plt.figure(figsize=(8,6))
     sns.histplot(data=df_sorted, x="value", bins=50, log_scale=(True, False))
-    plt.title(f"Histogram (logscale) of {varname} for {year}")
+    plt.title(f"Histogram (logscale) for scenario {scenario} of {varname} for {year}")
     unit = da.attrs.get("unit", "") if da.attrs else ""
     plt.xlabel(f"{varname}" + (f" ({unit})" if unit else ""))
     plt.ylabel("Count (log scale)")
@@ -398,7 +405,8 @@ def plot_boxplot_per_region(project_dir:Path, dir_processed:Path, file_IAM_model
         output_dtypes=[str],
     )
 
-    fig, axes = plt.subplots(1, len(years), figsize=(20, 6), sharey=True)
+    n = len(years)
+    fig, axes = plt.subplots(1, len(years), figsize=(n*5, 6), sharey=True)
 
     for ax, year in zip(axes, years):
         # Select year — keeps rest of data out of memory
@@ -419,15 +427,16 @@ def plot_boxplot_per_region(project_dir:Path, dir_processed:Path, file_IAM_model
         labels = unique_regions.tolist()  # already strings, no str() conversion needed
 
         ax.boxplot(data_by_region, labels=labels, patch_artist=True, showfliers=False)
-        ax.set_title(str(year))
-        ax.set_xlabel("Region")
-        ax.tick_params(axis="x", rotation=90, labelsize=8)
+        ax.set_title(str(year), fontsize=14)
+        ax.set_xlabel("Region", fontsize=12)
+        ax.tick_params(axis="x", rotation=90, labelsize=12)
+        ax.tick_params(axis="y", labelsize=12)
 
         # Free memory after each year
         del ds_year, em_flat, region_flat, em_valid, region_valid
 
-    axes[0].set_ylabel(unit)
-    fig.suptitle(f"{varname} per grid cell per model region", y=1.02)
+    axes[0].set_ylabel(unit, fontsize=12)
+    fig.suptitle(f"{varname} per grid cell per model region for scenario {scenario}", y=1.02, fontsize=16)
     plt.tight_layout()
 
     save_file = dir_processed / "figures" / f"boxplot_per_region_{varname.replace('|', '_').replace(' ', '_')}_{model}_{scenario}.png"
@@ -533,8 +542,9 @@ def plot_factors_GDP_POP(project_dir:Path, ds_population:None|xr.Dataset, ds_gdp
     fig_path = project_dir / "figures" / f"pop_gdp_ppp_grid_cf_{coarsen}.png"
     plt.savefig(fig_path, dpi=300, bbox_inches="tight")
 
-def plot_Mercator_projection_update(da, *, ax=None, coarsen=12, transform="linear", show=False, title=None,
-                                    cbar_shrink=0.6, cbar_aspect=20, cbar_pad=0.05):
+def plot_Mercator_projection(da, *, ax=None, coarsen=12, transform="linear", show=False, title=None,
+                             cbar_shrink=0.6, cbar_aspect=20, cbar_pad=0.05,
+                             vmin=None, vmax=None, add_polygon=None):
     """
     Plot an xarray.DataArray on a Mercator map using xarray's .plot().
     - Creates no figure on import; only when called.
@@ -550,9 +560,6 @@ def plot_Mercator_projection_update(da, *, ax=None, coarsen=12, transform="linea
 
     """
     # Check and rename dimensions BEFORE coarsening
-    print(f"Original dimensions: {da.dims}")
-    print(f"Original coords: {list(da.coords.keys())}")
-    print(f"Original shape: {da.shape}")
 
     # Rename lon/lat to x/y if needed (BEFORE coarsening)
     if "lon" in da.coords and "lat" in da.coords:
@@ -566,12 +573,8 @@ def plot_Mercator_projection_update(da, *, ax=None, coarsen=12, transform="linea
     if "x" not in da.dims or "y" not in da.dims:
         raise ValueError(f"DataArray must have 'x' and 'y' dimensions (or 'lon' and 'lat'). Found: {da.dims}")
 
-    print(f"Dimensions after rename: {da.dims}")
-
     # Now coarsen with correct dimension names
     da_coarsened = da.coarsen(x=coarsen, y=coarsen, boundary="trim").mean()
-    print(f"Dimensions after coarsening: {da_coarsened.dims}")
-    print(f"Shape after coarsening: {da_coarsened.shape}")
 
     # Normalise longitudes if needed
     if (da_coarsened.x > 180).any():
@@ -591,18 +594,17 @@ def plot_Mercator_projection_update(da, *, ax=None, coarsen=12, transform="linea
         valid_data = da_coarsened.values[np.isfinite(da_coarsened.values) & (da_coarsened.values > 0)]
         if len(valid_data) == 0:
             print(f"Warning: No valid positive data for log transform, switching to linear")
-            norm_plot = mcolors.Normalize()
+            #norm_plot = mcolors.Normalize()
+            norm_plot = mcolors.Normalize(vmin=vmin, vmax=vmax)
         else:
-            # Use robust percentiles for vmin/vmax but ensure they're positive
-            vmin = np.percentile(valid_data, 2)
-            vmax = np.percentile(valid_data, 98)
-            # Ensure vmin is positive for log scale
-            if vmin <= 0:
-                vmin = np.min(valid_data[valid_data > 0])
-            print(f"LogNorm vmin: {vmin}, vmax: {vmax}")
-            norm_plot = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+            _vmin = vmin if vmin is not None else np.percentile(valid_data, 2)
+            _vmax = vmax if vmax is not None else np.percentile(valid_data, 98)
+            if _vmin <= 0:
+                _vmin = np.min(valid_data[valid_data > 0])
+            norm_plot = mcolors.LogNorm(vmin=_vmin, vmax=_vmax)
     elif transform == "linear":
-        norm_plot = norm = mcolors.Normalize()
+        # norm_plot = norm = mcolors.Normalize()
+        norm_plot = mcolors.Normalize(vmin=vmin, vmax=vmax)
     else:
         print(f"Unknown transform: {transform}, defaulting to linear")
         norm_plot = norm = mcolors.Normalize()
@@ -633,6 +635,12 @@ def plot_Mercator_projection_update(da, *, ax=None, coarsen=12, transform="linea
     gl.right_labels = False
     gl.top_labels = False
 
+        # Draw polygon boundary if provided
+    if add_polygon is not None:
+        if add_polygon.empty:
+            print(f"Warning: polygon GeoDataFrame is empty, skipping polygon drawing.")
+        else:
+            ax.add_geometries(add_polygon.geometry, crs=ccrs.PlateCarree(), facecolor="none", edgecolor="red", linewidth=1.5, zorder=5)
 
     if title:
         ax.set_title(title)
@@ -702,7 +710,7 @@ def plot_Mercator_projection_original(da, *, ax=None, coarsen=12, transform="lin
         add_colorbar=True,
         robust=True,
         rasterized=True,
-        infer_intervals=True,
+        infer_intervals=False,
         norm=norm_plot
     )
 

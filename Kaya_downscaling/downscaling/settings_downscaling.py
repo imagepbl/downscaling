@@ -10,10 +10,9 @@ process_flags = {
     "process_GDP_per_POP": True,
     "process_df_EM_per_GDP": True,
     "process_grid_EM_per_GDP": True,
-    "save_tiffs": False,
+    "save_tiffs_intermediate": False,
     "save_tiffs_results": True,
     "process_urban_classification": True,
-
     "process_SE": True
 }
 
@@ -135,12 +134,10 @@ vars_downscaling = [
     "Emissions|CO2|Energy|Demand|AFOFI",
     "Emissions|CO2|Industrial Processes",
     "Emissions|CO2|Energy|Demand|Bunkers|International Aviation",
-    "Emissions|CO2|Energy|Demand|Bunkers|International Shipping",
+    #"Emissions|CO2|Energy|Demand|Bunkers|International Shipping", # shipping is only available at World region, which is excluded
     "Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation",
     "Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping",
-
     "Emissions|CO2|AFOLU",
-
     "Gross Emissions|CO2|Energy|Supply",
     "Gross Emissions|CO2|Energy|Demand",
     "Gross Emissions|CO2|Energy|Demand|Industry"

@@ -49,7 +49,7 @@ progress_bar.register()
 
 chunks = 512  # chunk size for dask operations
 
-local_log, dummy_log = init_logging("log", "log/reading_data")
+local_log, dummy_log = init_logging("log", "log/reading_data/local")
 
 def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: DatasetReader, rtol=1e-5, atol=1e-8, save_not_close_map=False, chunk_size = 1024, log: logging.Logger=local_log) -> dict:
 
