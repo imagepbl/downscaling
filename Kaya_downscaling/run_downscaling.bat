@@ -4,7 +4,8 @@ set profile=%1
 REM **********************************************
 REM CREATE REGION RASTER FILE
 REM **********************************************
-REM pixi run python main.py --create_GADM_raster --resolution 6.00
+pixi run python main.py --create_GADM_raster --resolution 6.00
+REM pixi run python main.py --create_GADM_raster --resolution 0.50
 
 REM **********************************************
 REM INPUT PROFILE
@@ -29,8 +30,8 @@ REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --mo
 
 REM PLOT EMISSIONS
 if not "%profile%"=="" (
-    pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
-    pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
+    REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
+    REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
 ) else (
     echo No profile specified, skipping...
 )

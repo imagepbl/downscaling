@@ -105,10 +105,7 @@ def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", r
         print(f"Plotting {region_name} ...")
 
         # Clip to bounding box — loads only this small tile into memory
-        ds_clip = ds.rio.clip_box(
-            minx=min_lon, maxx=max_lon,
-            miny=min_lat, maxy=max_lat,
-        ).compute()  # bring clipped data into memory
+        ds_clip = ds.rio.clip_box(minx=min_lon, maxx=max_lon, miny=min_lat, maxy=max_lat).compute()  # bring clipped data into memory
 
         band_country = ds_clip.sel(band=1).values.astype(float)
         band_region  = ds_clip.sel(band=2).values.astype(float)
@@ -123,15 +120,9 @@ def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", r
                   lat_coords.min(), lat_coords.max()]
 
         proj = ccrs.PlateCarree()
-        fig, axes = plt.subplots(
-            1, 2,
-            figsize=(14, 6),
-            subplot_kw={"projection": proj},
-        )
-        fig.suptitle(
-            f"{region_name.replace('_', ' ')}  —  {resolution_minutes} arc-min resolution",
-            fontsize=13, fontweight="bold",
-        )
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6), subplot_kw={"projection": proj})
+        fig.suptitle(f"{region_name.replace('_', ' ')}  —  {resolution_minutes} arc-min resolution",
+            fontsize=13, fontweight="bold")
 
         titles    = ["Band 1: country_id_GADM", "Band 2: region_number"]
         data_arrs = [band_country, band_region]
@@ -140,14 +131,7 @@ def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", r
         for ax, title, data, cmap in zip(axes, titles, data_arrs, cmaps):
             ax.set_extent(extent, crs=proj)
 
-            im = ax.imshow(
-                data,
-                origin="upper",
-                extent=extent,
-                transform=proj,
-                cmap=cmap,
-                interpolation="nearest",
-            )
+            im = ax.imshow(data, origin="upper", extent=extent, transform=proj, cmap=cmap, interpolation="nearest")
 
             # Coastlines and borders for visual reference
             ax.add_feature(cfeature.COASTLINE, linewidth=0.8, edgecolor="black")

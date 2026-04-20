@@ -1,20 +1,16 @@
 import time
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 import os
+import shutil
 
-from typing import Tuple
 import logging
 import json
-import subprocess
-from dask.diagnostics import ProgressBar
 from dask.distributed import get_client
 from dask import base as dask_base
 
 import numpy as np
 import pandas as pd
-from scipy.ndimage import distance_transform_edt
 from tabulate import tabulate
-import gc
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -22,9 +18,7 @@ from tkinter import filedialog, messagebox
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import rasterio
-import rasterio.enums
 import xarray as xr
-import rioxarray as rxr
 import cartopy.crs as ccrs
 
 from tools.functions_logging import init_logging
@@ -40,146 +34,31 @@ import downscaling.upload_results_ee as upload_results_ee
 
 import downscaling.settings_downscaling as settings
 from downscaling.settings_downscaling import SOURCE_PROFILES
+import downscaling.IAM_spatial_model_maps as IAM_maps
 
 
-
-def _fill_nearest_neighbour(da: xr.DataArray, max_fill_pixels: int = 5) -> xr.DataArray:
-    values = da.values.copy().astype(float)
-    mask_valid = np.isfinite(values) & (values != 0)
-
-    # Pre-allocate output arrays to avoid Pylance unpacking warning
-    distances = np.empty(values.shape, dtype=np.float64)
-    indices   = np.empty((values.ndim,) + values.shape, dtype=np.int32)
-
-    distance_transform_edt(~mask_valid,return_distances=True,return_indices=True,distances=distances,indices=indices,)
-
-    filled = values[tuple(indices)]
-    filled = np.where(distances <= max_fill_pixels, filled, values)
-    filled = np.where(mask_valid, values, filled)  # never overwrite valid pixels
-    return da.copy(data=filled.astype(da.dtype))
-
-def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, plot=False):
-    #dir_GADM = f"{project_dir.name}/data/processed/GADM"
-    dir_GADM = project_dir / "data" / "processed" / "GADM"
+def create_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, plot=False):
 
     settings_file = project_dir / "downscaling" / "settings_data_locations.json"
     with open(settings_file, "r") as f:
         settings = json.load(f)
-        data_dir_GADM = Path(settings["GADM"]["dir_GADM_single"])
+        input_dir_GADM = Path(settings["GADM"]["dir_GADM_single"])
+    input_dir_IMAGE = project_dir / "data" / "input" / "models" / "IMAGE"
+    output_dir = project_dir / "data" / "processed" / "GADM"
+    tiff_file, netcdf_file = IAM_maps.create_GADM_region_raster(input_dir_GADM, input_dir_IMAGE, output_dir, model, resolution_minutes)
+    dst_tiff = project_dir / "data" / "input" / "models" / model / tiff_file.name
+    shutil.copy2(tiff_file, dst_tiff)
+    dst_netcdf = project_dir / "data" / "input" / "models" / model / netcdf_file.name
+    shutil.copy2(netcdf_file, dst_netcdf)
 
-    print("Creating GADM raster file for regions...")
+    if plot:
+        dir_fig = Path(f"{output_dir}/figures")
+        dir_fig.mkdir(parents=True, exist_ok=True)
+        plot_maps.plot_coast_checks(tiff_file, dir_fig, f"_{resolution_minutes:.2f}", resolution_minutes)
 
-    id_to_iso = pd.DataFrame()
-    # 1. check if file with GADM raster countries exists
-    res_min_file_end = f"{resolution_minutes:.2f}".replace(".", "_")
-    iso_GADM_raster_file = f"{dir_GADM}/iso_codes_raster_{res_min_file_end}.tif"
-    print(f"Checking if GADM raster file exists at: {iso_GADM_raster_file}")
-    if not Path(iso_GADM_raster_file).exists():
-        print(f"Reading in GADM raster with resolution {resolution_minutes} arc minutes file for countries: {iso_GADM_raster_file}")
-        raster_file, iso_to_id, id_to_iso = convert_GIS.GADM_vector_to_raster(project_dir, data_dir_GADM, resolution_degrees = resolution_minutes/60, plot=False)
-        df_iso_to_id = pd.DataFrame(list(iso_to_id.items()), columns=["ISO", "id"])
-    else:
-        print(f"GADM raster with resolution {resolution_minutes} arc minutes file already exists at: {iso_GADM_raster_file}, skipping creation.")
-        df_iso_to_id = pd.read_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";")
-
-    # 2. convert to xarray and rasterio dataset
-    # Open GADM raster file
-    ds_GADM_raster = xr.open_dataset(iso_GADM_raster_file, decode_coords="all")
-    ds_GADM_raster = ds_GADM_raster.rename({"band_data":"country_id_GADM"})
-    ds_GADM_raster = ds_GADM_raster.squeeze("band")
-    print(ds_GADM_raster)
-
-    # Assign proper geographic coordinates before any further processing
-    resolution_degrees = resolution_minutes / 60
-    n_x = ds_GADM_raster.sizes["x"]
-    n_y = ds_GADM_raster.sizes["y"]
-    x_coords = np.linspace(-180 + resolution_degrees / 2, 180 - resolution_degrees / 2, n_x)
-    y_coords = np.linspace(90 - resolution_degrees / 2, -90 + resolution_degrees / 2, n_y)
-    ds_GADM_raster = ds_GADM_raster.assign_coords(x=x_coords, y=y_coords)
-    ds_GADM_raster = ds_GADM_raster.rio.write_crs("EPSG:4326")
-
-    # add country_ID_GADM code from GADM
-    df_model_GADM_region_code_number = pd.DataFrame()
-    if model == "IMAGE":
-        country_to_region_file = project_dir / "data" / "input" / "models" / "IMAGE" / "country_to_regions.csv"
-        #df_model_coutry_to_region = pd.read_csv(f"{project_dir.name}/data/input/models/IMAGE/country_to_regions.csv", sep=";") # ISO3
-        df_model_coutry_to_region = pd.read_csv(country_to_region_file, sep=";") # ISO3
-        df_model_coutry_to_region.loc[df_model_coutry_to_region["ISO3"]=="GRL", "Region code"] = "WEU" # change GRL region code to WEU
-        # correct "HKG" and "MAC" ISO3 codes in GADM
-        df_iso_to_id_IMAGE = df_iso_to_id.copy()
-        new_rows = pd.DataFrame({"id": [None, None],
-                                 "ISO": ["HKG", "MAC"]})
-        df_iso_to_id_IMAGE = pd.concat([df_iso_to_id_IMAGE, new_rows], ignore_index=True)
-        df_model_GADM_region_code = pd.merge(df_model_coutry_to_region, df_iso_to_id_IMAGE, left_on="ISO3", right_on="ISO", how="outer")
-        df_model_GADM_region_code.rename(columns={"ISO3": "ISO3_model", "ISO": "ISO3_GADM"}, inplace=True) # TO DO --> check missing ISO3 codes between model/GADM
-        # print ISO3_model codes that are missing in GADM
-        missing_ISO3_GADM = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_GADM"].isna()]["ISO3_model"].unique()
-        if len(missing_ISO3_GADM) > 0:
-            print(f"{PRINT_COLORS["red"]}Warning: The following ISO3 codes from the model are missing in GADM and will be assigned a region number of 0:{PRINT_COLORS["end"]}")
-            print(missing_ISO3_GADM)
-        # print ISO3_GADM codes that are missing in model
-        missing_ISO3_model = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_model"].isna()]["ISO3_GADM"].unique()
-        if len(missing_ISO3_model) > 0:
-            print(f"{PRINT_COLORS["yellow"]}Warning: The following ISO3 codes from GADM are missing in the model and will be ignored:{PRINT_COLORS["end"]}")
-            print(missing_ISO3_model)
-
-        # map to region numbers
-        #df_region_numbers = pd.read_csv(f"{project_dir.name}/data/input/models/IMAGE/image_region_numbers.csv", sep=",")
-        region_numbers_file = project_dir / "data" / "input" / "models" / "IMAGE" / "image_region_numbers.csv"
-        df_region_numbers = pd.read_csv(region_numbers_file, sep=",")
-        df_model_GADM_region_code_number = pd.merge(df_model_GADM_region_code, df_region_numbers, left_on="Region code", right_on="IMAGE region", how="left")
-        df_model_GADM_region_code_number.drop(columns=["Country name", "Region code", "IMAGE region"], inplace=True)
-        df_model_GADM_region_code_number.rename(columns={"id": "country_id_GADM", "IMAGE number": "IMAGE_region_number"}, inplace=True)
-        df_model_GADM_region_code_number["IMAGE_region_number"] = df_model_GADM_region_code_number["IMAGE_region_number"].fillna(0).astype(np.int8)
-        df_model_GADM_region_code_number["country_id_GADM"] = df_model_GADM_region_code_number["country_id_GADM"].fillna(0).astype(np.int16)
-        df_model_GADM_region_code_number.rename(columns={"IMAGE_region_number": "region_number"}, inplace=True)
-        df_model_GADM_region_code_number.to_csv(f"{dir_GADM}/IMAGE_GADM_country_to_region_codes.csv", sep=";", index=False)
-
-    print(df_model_GADM_region_code_number)
-    print("\nMerging GADM raster with model region numbers...")
-
-    # add region numbers to GADM raster
-    country_to_region = df_model_GADM_region_code_number.set_index("country_id_GADM")["region_number"].to_dict()
-    ds_GADM_raster["region_number"] = xr.full_like(ds_GADM_raster["country_id_GADM"], fill_value=0, dtype=np.int16)
-    ds_GADM_raster["region_number"] = xr.apply_ufunc(np.vectorize(lambda x: 0 if np.isnan(x) else country_to_region.get(x, 0)),
-                                                     ds_GADM_raster["country_id_GADM"],
-                                                     output_dtypes=[np.int16])
-    print(ds_GADM_raster)
-    print(f"regions: {np.unique(ds_GADM_raster["region_number"].values)}")
-
-    # extend region numbers to nearest neighbour to fill small gaps in GADM raster (e.g. small islands)
-    # This only applies for country_id_GADM that are present in the model (i.e. with region_number > 0)
-    ds_GADM_raster["region_number"]   = _fill_nearest_neighbour(ds_GADM_raster["region_number"],   max_fill_pixels=0)
-    ds_GADM_raster["country_id_GADM"] = _fill_nearest_neighbour(ds_GADM_raster["country_id_GADM"], max_fill_pixels=0)
-
-    # save to netcdf and tiff
-    print(f"CRS: {ds_GADM_raster.rio.crs}")
-    print(f"\nSaving GADM raster to {PRINT_COLORS["green"]}netcdf {PRINT_COLORS["end"]}file in {dir_GADM} with region numbers...")
-    ds_GADM_raster.to_netcdf(f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.nc", mode="w", engine="netcdf4")
-    print(f"\nSaving GADM raster to {PRINT_COLORS["yellow"]}tiff {PRINT_COLORS["end"]} file in {dir_GADM} with region numbers...")
-    data = np.stack([ds_GADM_raster["country_id_GADM"].values, ds_GADM_raster["region_number"].values])
-    with rasterio.open(
-        f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.tif",
-        "w",
-        driver="GTiff",
-        height=data.shape[1], width=data.shape[2],
-        count=2,
-        dtype=data.dtype,
-        crs=ds_GADM_raster.rio.crs,
-        transform=ds_GADM_raster.rio.transform(),
-        compress="LZW",
-        predictor=2,  # Improves compression for integer data
-        tiled=True,   # Better for large files
-        all_touched=True,
-        blockxsize=256, blockysize=256) as dst: dst.write(data)
-
+    ds_GADM_raster = xr.open_dataset(netcdf_file)
     arc_seconds, arc_minutes, arc_degrees = process_grid_data.calculate_resolution(ds_GADM_raster["region_number"])
-    print(f"resolution EM grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees")
-
-    dir_input = Path(f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.tif")
-    dir_fig = Path(f"{dir_GADM}/figures")
-    dir_fig.mkdir(parents=True, exist_ok=True)
-    plot_maps.plot_coast_checks(dir_input, dir_fig, F"_{resolution_minutes:.2f}")
+    print(f"resolution EM grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.4f} arc degrees")
 
 def process_datasets(project_dir:Path, SSP_base="SSP2", copy:bool=False):
     # settings
@@ -491,7 +370,6 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
 
     # Build target regional values as an xarray (time × region_number)
     debug_log.info("4.1 building target regional values from IAM projections...")
-    #with ProgressBar():
     xr_harmonised_se = (df_IAM_projection_se_downscaling
                         .set_index(["year", "region_number"])["value"]
                         .to_xarray()
@@ -508,7 +386,6 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
     # sel() broadcasts to produce a (time, y, x) DataArray without any explicit loop.
     debug_log.info("4.2 mapping regional correction factors to spatial grid...")
     region2d = xr_IAM_regions_grid_downscaling["region_number"].astype("int16")
-    #with ProgressBar():
     xr_correction_factors = (xr_correction_factors_regional
                                 .sel(region_number=region2d)
                                 .drop_vars("region_number")).compute()

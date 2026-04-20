@@ -70,7 +70,7 @@ if __name__ == "__main__":
     if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
         if arguments.resolution is None:
             parser.error("--create_GADM_raster requires a resolution to be specified with --resolution")
-        downscaling.create_GADM_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
+        downscaling.create_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
     if hasattr(arguments, 'downscale_population') and arguments.downscale_population is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
