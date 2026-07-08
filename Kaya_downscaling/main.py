@@ -1,6 +1,7 @@
 import sys
 import os
 from pathlib import Path
+import downscaling.IAM_spatial_model_maps as IAM_maps
 
 """
 Configure GDAL and PROJ data directories for the active Python environment.
@@ -23,15 +24,59 @@ os.environ['PROJ_DATA'] = proj_path
 from pyproj import datadir
 datadir.set_data_dir(proj_path)
 
-print("GDAL_DATA:", gdal_path)
-print("PROJ_LIB:", proj_path)
-print("proj.db exists:", os.path.exists(os.path.join(proj_path, 'proj.db')))
-print("pyproj data dir:", datadir.get_data_dir())
+print("Check GDAL and PROJ data directories:")
+print("\tGDAL_DATA location:", gdal_path)
+print("\tPROJ_LIB location:", proj_path)
+print("\tproj.db exists:", os.path.exists(os.path.join(proj_path, 'proj.db')))
+print("\tpyproj data dir:", datadir.get_data_dir())
 
 import argparse
 import downscaling.downscaling as downscaling
 
 if __name__ == "__main__":
+    '''
+
+    -Process data ('copy' to run folder or 'no_copy)
+    python run main.py --process copy --ssp_baseline SSP2
+    python run main.py --process no_copy --ssp_baseline SSP2
+
+    -Create GADM raster for countries
+    python run main.py --create_GADM_raster --resolution 6.00
+
+    -Compare to raster files
+    pixi run python main.py --compare
+
+    -Downscaling emissions to grid level
+    **********************************************
+    INPUT PROFILE
+    **********************************************
+    'First round' (2UP, Wang, EDGAR)
+    'Second round' (2UP, Murakami, EDGAR)
+    'Third round' (2UP, Murakami, CEDS_CMIP7)
+    'Fourth round' (Zhuang, Murakami, CEDS_CMIP7)
+    'Fifth round' (COMPASS, COMPASS, CEDS_CMIP7)
+
+    --Downscale POPULATION
+    pixi run python main.py --downscale_population --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
+    pixi run python main.py --downscale_population --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions net
+
+    --Downscale NET EMISSIONS
+    pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
+    pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile first_round --emissions net
+    pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile  %profile% --emissions net
+
+    --Downscale GROSS EMISSIONS
+    pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions gross
+    pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions gross
+
+    -Plot results
+    python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
+    python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min 0 --global_max 100
+
+    -Upload results to Google Earth Engine
+    python run main.py --upload --scenario ELV-SSP2-CP --model IMAGE --profile %profile%
+
+    '''
     project_dir = Path(__file__).parent.resolve()
 
     parser = argparse.ArgumentParser(description="Downscaling emissions to grid level") # add_help=True by default
@@ -70,7 +115,7 @@ if __name__ == "__main__":
     if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
         if arguments.resolution is None:
             parser.error("--create_GADM_raster requires a resolution to be specified with --resolution")
-        downscaling.create_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
+        IAM_maps.create_GADM_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
     if hasattr(arguments, 'downscale_population') and arguments.downscale_population is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")

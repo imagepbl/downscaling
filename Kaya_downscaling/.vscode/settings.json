@@ -1,6 +1,6 @@
 {
-  //"python.defaultInterpreterPath": "${workspaceFolder}/.pixi/envs/default/python.exe",
-  "python.defaultInterpreterPath": "P:\\downscaling\\Kaya_downscaling\\.pixi\\envs\\default\\python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.pixi/envs/default/python.exe",
+  //"python.defaultInterpreterPath": "P:\\downscaling\\Kaya_downscaling\\.pixi\\envs\\default\\python.exe",
   "editor.scrollbar.horizontalScrollbarSize": 20,
   "editor.scrollbar.verticalScrollbarSize": 20,
   "workbench.colorCustomizations": {

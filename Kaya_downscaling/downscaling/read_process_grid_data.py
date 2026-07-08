@@ -1369,6 +1369,17 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
         Path to the input TIFF file without CRS
     output_tiff_path : str, optional
         Path for the output TIFF file with CRS. If None, overwrites the input file.
+
+    In general, update_GIS_parameters does these types of updates to the data/files:
+        * Organizes outputs into standardized processed folders. It writes each source/variable into a structured processed directory (by variable, source, version, SSP).
+        * Copies files to a new location. For several sources, it mainly copies TIFFs from original/run locations into processed locations.
+        * Adds or fixes geospatial metadata. It sets/updates CRS and geotransform where needed, especially to WGS84 (EPSG:4326), and in some cases sets nodata.
+        * Rewrites rasters with updated profiles. After profile changes, files are rewritten so metadata is actually embedded in output TIFFs.
+        * Reprojects grids for harmonization. Some datasets are reprojected to EPSG:4326 and aligned to a global lon/lat grid.
+        * Converts units/values when needed. For Zhuang population, it converts density to population counts (using pixel area) before reprojection and uses sum resampling.
+        * Forces full-global extent/resolution in special cases. For Zhuang, it creates a full global raster extent (-180 to 180, -90 to 90) and fills out-of-coverage with nodata.
+        * Applies nodata conventions. Examples: sets nodata to -9999 (2UP population) or 0 (Wang GDP|PPP).
+        * Standardizes historical filename patterns. For COMPASS population and GDP|PPP, it copies historical files and renames them to match the SSP-style naming convention (SSP2_not_harm).
     """
     output_tiff_dir = Path(".")  # default to current directory if not set
     with open("downscaling/settings_data_locations.json", "r") as f:

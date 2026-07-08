@@ -1,14 +1,17 @@
 from pathlib import Path
-import matplotlib.colors as mcolors
+
 import matplotlib
 matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import FuncFormatter
+from matplotlib.colors import BoundaryNorm
+from matplotlib.colors import ListedColormap
 import seaborn as sns
 
 import xarray as xr
@@ -21,6 +24,37 @@ from rasterio.transform import from_bounds
 from tools.general_functions import replace_punctuation_in_filenames
 import downscaling.read_process_IAM_data as process_IAM_data
 import downscaling.process_IPAT_factors as process_IPAT_factors
+
+def plot_tiff(tiff_file:Path) -> None:
+
+    with rasterio.open(tiff_file) as src:
+        data = src.read(1)
+        transform = src.transform
+
+    fig = plt.figure(figsize=(10, 6))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+
+    # Plot raster
+    ax.imshow(
+        data,
+        origin="upper",
+        extent=[-180, 180, -90, 90],
+        transform=ccrs.PlateCarree(),
+        cmap="gray",
+        interpolation="none"
+    )
+
+    # Add coastlines (truth reference)
+    ax.add_feature(cfeature.COASTLINE, linewidth=1.0, edgecolor="red")
+
+    # Add gridlines with labels
+    gl = ax.gridlines(draw_labels=True, linewidth=0.5, linestyle="--")
+    gl.top_labels = False
+    gl.right_labels = False
+
+    ax.set_title("Geolocation sanity check (coastlines should align)")
+
+    plt.show()
 
 def save_to_grid_tiff(dir_processed:Path,
                       xr_grid:xr.Dataset, varname:str,

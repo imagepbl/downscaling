@@ -15,6 +15,7 @@ from tools.functions_logging import init_logging
 from tools.process_GDP import use_gdpuc
 from tools.general_functions import PRINT_COLORS
 from downscaling.read_process_grid_data import print_info_rasterio
+import downscaling.settings_models as settings_models
 
 local_log, dummy_log = init_logging("log", "log/reading_data")
 
@@ -36,10 +37,8 @@ def create_ISO_file_IMAGE():
 
 def get_IAM_region_info(model="IMAGE"):
     filename_region_grid = ""
-    with open("downscaling/settings_data_locations.json", "r") as f:
-        data_files = json.load(f)
-        filename_region_grid = data_files["IAM"][model]["file_IAM_regions_grid"]
-        file_IAM_model_region_numbers = data_files["IAM"][model]["file_IAM_model_region_numbers"]
+    filename_region_grid = settings_models.models[model]["file_IAM_regions_grid"]
+    file_IAM_model_region_numbers = settings_models.models[model]["file_IAM_model_region_numbers"]
 
     return filename_region_grid, file_IAM_model_region_numbers
 
@@ -115,7 +114,7 @@ def read_IAM_regions_data(project_dir: Path, model:str, scenario:str, regions_ma
     return df_IAM
 
 def get_regions(project_dir:Path, model:str, file_IAM_model_region_numbers:str) -> Tuple[pd.DataFrame, dict]:
-    csv_path = project_dir / f"data/input/models/{model}/{file_IAM_model_region_numbers}"
+    csv_path = project_dir / file_IAM_model_region_numbers
     regions = pd.read_csv(csv_path, sep=",")
     regions_mapping = {}
     if model == "IMAGE":
@@ -230,15 +229,18 @@ def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFra
 
 def process_GDP(model:str, df:pd.DataFrame, var:str) -> pd.DataFrame:
     # Read the JSON file
-    with open("downscaling/settings_models.json", "r") as f:
+
+    # Use the dict name defined in settings_models.py
+    model_cfg = settings_models.models[model]  # e.g. MODEL_SETTINGS or data
+    factor_GDP_PPP = model_cfg["factor_GDP_PPP"]
+    factor_year_from = model_cfg["factor_year_from"]
+    factor_year_to = model_cfg["factor_year_to"]
+
+    # R_SCRIPT_PATH = r"C:\Program Files\R\R-4.1.1\bin\Rscript.exe"
+    with open("downscaling/settings_data_locations.json", "r") as f:
         data = json.load(f)
-        factor_GDP_PPP = data[model]["factor_GDP_PPP"]
-        factor_year_from = data[model]["factor_year_from"]
-        factor_year_to = data[model]["factor_year_to"]
-    #with open("downscaling/settings_data_locations.json", "r") as f:
-    #    data = json.load(f)
-    #    R_SCRIPT_PATH = data["general"]["R_SCRIPT_PATH"]
-    R_SCRIPT_PATH = r"C:\Program Files\R\R-4.1.1\bin\Rscript.exe"
+        R_SCRIPT_PATH = data["general"]["R_SCRIPT_PATH"]
+
 
     # Update GDP|PPP to $2005 dollars
     df_IAM = df.copy()

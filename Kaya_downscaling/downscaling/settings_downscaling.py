@@ -1,36 +1,4 @@
 # ---------------------------------------------------------------------------
-# Process flags
-# ---------------------------------------------------------------------------
-process_flags = {
-    "read_process_POP": True,
-    "read_process_GDP_PPP": True,
-    "read_process_EM": True,
-    "process_IAM": True,
-    "process_GDP_POP_grid": True,
-    "process_GDP_per_POP": True,
-    "process_df_EM_per_GDP": True,
-    "process_grid_EM_per_GDP": True,
-    "save_tiffs_intermediate": False,
-    "save_tiffs_results": True,
-    "process_urban_classification": True,
-    "process_SE": True
-}
-
-check_flags = {
-    "check_POP_data": False,
-    "check_GDP_data": False,
-    "check_EM_data": False,
-    "check_GDP_POP": False,
-    "check_IAM_data": False,
-    "check_IAM_grid_data": False,
-    "check_grid_GDP_per_pop": False,
-    "check_IAM_GDP_per_pop": False,
-    "check_SE_correction_factors": False,
-    "check_SE_harmonised": False,
-    "check_emissions": False,
-}
-
-# ---------------------------------------------------------------------------
 # Source profiles
 # ---------------------------------------------------------------------------
 SOURCE_PROFILES = {
@@ -84,6 +52,39 @@ SOURCE_PROFILES = {
     }
 }
 
+
+# ---------------------------------------------------------------------------
+# Process flags
+# ---------------------------------------------------------------------------
+process_flags = {
+    "read_process_POP": True,
+    "read_process_GDP_PPP": True,
+    "read_process_EM": True,
+    "process_IAM": True,
+    "process_GDP_POP_grid": True,
+    "process_GDP_per_POP": True,
+    "process_df_EM_per_GDP": True,
+    "process_grid_EM_per_GDP": True,
+    "save_tiffs_intermediate": False,
+    "save_tiffs_results": True,
+    "process_urban_classification": True,
+    "process_SE": True
+}
+
+check_flags = {
+    "check_POP_data": False,
+    "check_GDP_data": False,
+    "check_EM_data": False,
+    "check_GDP_POP": False,
+    "check_IAM_data": False,
+    "check_IAM_grid_data": False,
+    "check_grid_GDP_per_pop": False,
+    "check_IAM_GDP_per_pop": False,
+    "check_SE_correction_factors": False,
+    "check_SE_harmonised": False,
+    "check_emissions": False,
+}
+
 # ---------------------------------------------------------------------------
 # Variable names
 # ---------------------------------------------------------------------------
@@ -101,15 +102,6 @@ unit_GDP_PPP = "USD_2005/yr"
 unit_EM      = "tonnes CO2/year"
 
 # ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-model                         = "IMAGE"
-file_model_grid_regions       = "IMAGE_GADM_regions_raster.nc"
-file_model_grid_regions_0_50  = "IMAGE_GADM_regions_raster_0_50_arcmin.nc"
-file_model_grid_regions_6_00  = "IMAGE_GADM_regions_raster_6_00_arcmin.nc"
-file_IAM_model_region_numbers = "image_region_numbers.csv"
-
-# ---------------------------------------------------------------------------
 # Downscaling
 # ---------------------------------------------------------------------------
 SSP_base          = "SSP2"
@@ -118,9 +110,9 @@ convergence_year  = 2150
 method_extension  = 2  # 1: growth rate from last two steps, 2: zero growth rate
                        # 3: growth rate to near-zero at convergence year, 4: absolute growth rate
 
-years_downscaling = [2020, 2025, 2030, 2035, 2040, 2045, 2050,
-                     2060, 2070, 2080, 2090, 2100]
+years_downscaling = [2020, 2025, 2030, 2035, 2040, 2045, 2050, 2060, 2070, 2080, 2090, 2100]
 
+# TO DO --> move this to settings_models.py
 vars_downscaling = [
     "Population",
     "GDP|PPP",

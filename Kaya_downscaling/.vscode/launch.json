@@ -2,14 +2,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Python Debugger: main.py",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
+            "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false,
-            "python": "${workspaceFolder}/.pixi/envs/default/python.exe",
+            "python": "${command:python.interpreterPath}",
             "cwd": "${workspaceFolder}",
+            "subProcess": true,
+            "stopOnEntry": false,
+            "redirectOutput": true,
             "args": ["--create_GADM_raster", "--resolution", "6.00"],
             //"args": ["--process", "no_copy", "--ssp_baseline", "SSP2"],
             //"args": ["--downscale_population", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "third_round"],
@@ -21,6 +25,8 @@
             //"args": ["--upload", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
             //"args": ["--compare"],
             "env": {
+                "CONDA_PREFIX": "${workspaceFolder}\\.pixi\\envs\\default",
+                "PATH": "${workspaceFolder}\\.pixi\\envs\\default;${workspaceFolder}\\.pixi\\envs\\default\\Library\\bin;${workspaceFolder}\\.pixi\\envs\\default\\Scripts;${env:PATH}",
                 "MPLBACKEND": "Agg",
                 "PYDEVD_USE_CYTHON": "NO",
                 "PYDEVD_DISABLE_FILE_VALIDATION": "1"

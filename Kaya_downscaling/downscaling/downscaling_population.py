@@ -113,6 +113,7 @@ import functions_downscaling as dsf
 import functions_processing_hist_data as pdf
 import functions_read_process_IAM_data as rpd
 import functions_logging as log
+import downscaling.settings_models as settings_models
 
 pd.set_option('display.max_rows', 25)
 
@@ -183,9 +184,13 @@ Abundant years will be deleted, missing years will be (linearly) interpolated
 '''
 
 # Input files for IAM regional projections
-file_IAM_model_country_region = "data/input/models/IMAGE/country_to_regions.csv" # ISO3, Country name, Region code (matches region code IAMC template)
-file_IAM_model_region_numbers = "data/input/models/IMAGE/image_region_numbers.csv" # ISO3, Country name, Region code (matches region code IAMC template)
-file_IAM_regions_grid = "data/input/models/IMAGE/GREG.nc" # netcdf file with model regions on 0.5x0.5 grid
+# TO DO --> use setting file
+#file_IAM_model_country_region = "data/input/models/IMAGE/country_to_regions.csv" # ISO3, Country name, Region code (matches region code IAMC template)
+#file_IAM_model_region_numbers = "data/input/models/IMAGE/image_region_numbers.csv" # ISO3, Country name, Region code (matches region code IAMC template)
+#file_IAM_regions_grid = "data/input/models/IMAGE/GREG.nc" # netcdf file with model regions on 0.5x0.5 grid
+file_IAM_model_country_region = settings_models.models[model]["file_IAM_model_country_region"]
+file_IAM_model_region_numbers = settings_models.models[model]["file_IAM_model_region_numbers"]
+file_IAM_regions_grid = settings_models.models[model]["file_IAM_regions_grid"]
 
 # Read in regional IAM IMAGE data
 vars_IAM_projection_se_indicator = [varname]

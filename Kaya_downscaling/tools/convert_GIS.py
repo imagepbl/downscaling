@@ -44,8 +44,7 @@ def convert_netcdf_to_tiff(ds: xr.Dataset, variable_name: str, output_file: str)
     # Export to GeoTIFF
     data_array.rio.to_raster(output_file)
 
-
-
+# GeoPackage (vector data) to Shapefile conversion
 def convert_gpkg_to_shapefile():
     # # settings
     # data_dir = "Z:/cold_data_storage/users/roelfsemam/data_downscaling"
