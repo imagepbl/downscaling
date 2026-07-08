@@ -20,6 +20,8 @@
 *.png
 *.jpg
 
+.pixi/
+
 *.pyc
 __pycache__/
 
