@@ -95,7 +95,6 @@ def read_grid_info_IAM_regions(project_dir:Path, model:str, filename_region_grid
 def read_IAM_regions_data(project_dir: Path, model:str, scenario:str, regions_mapping:dict, region_World:str="World") -> pd.DataFrame:
     # Scenario name should be the name of the IAMC template Excel file
 
-
     # Read IAM data
     excel_path = project_dir / f"data/input/models/{model}/SSP/{scenario}.xlsx"
     df_IAM = pd.read_excel(excel_path, sheet_name="data")
@@ -134,16 +133,13 @@ def read_process_IAM_data(project_dir:Path, scenario:str, model:str, file_IAM_mo
     # Read IAM data
     df_IAM = read_IAM_regions_data(project_dir, model, scenario, regions_mapping, region_World="World")
     df_IAM = df_IAM[df_IAM["Variable"].isin(vars_downscaling)].reset_index(drop=True)
-    #df_IAM.to_csv("data/check/IAM_data_before.csv", index=False, sep=";")
-    #df_IAM = df_IAM[df_IAM["Variable"].str.contains("Emissions", case=False)].reset_index(drop=True)
-    #df_IAM.to_csv("data/check/IAM_data_after.csv", index=False, sep=";")
     df_IAM.columns = [col.lower() for col in df_IAM.columns]
 
     df_IAM = pd.DataFrame(df_IAM)
 
     return df_IAM
 
-def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFrame, conversion_factor:float, convergence_year: int, method: int)->pd.DataFrame:
+def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFrame, conversion_factor:float, convergence_year: int, method: int, log: logging.Logger=local_log)->pd.DataFrame:
     # Extends dataframe by extrapolating value with a fixed growth rate per region.
     # Calculate growth rate per region from the last two time steps
     # Method 1: growth rate from last two time steps
@@ -151,6 +147,8 @@ def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFra
     # Method 3: growth rate to reach almost zero in convergence year
     # Method 4: absolute growth rate from last two time steps
 
+    log.info(f"Extrapolating IAM values to convergence year {convergence_year} using method {method}...")
+    
     df.columns = [col.lower() for col in df.columns]
     varname = df["variable"].unique()[0]
 
@@ -295,15 +293,15 @@ def process_EM_regions_data(df:pd.DataFrame, years_downscaling:list, varname_dat
         # check which variables from var_IAM_projectoin_CO2 are not in the variables
         missing_vars = [var for var in vars_downscaling if var not in df["variable"].unique()]
         if missing_vars:
-            print(f"{PRINT_COLORS["red"]}Warning: The following variables are missing in the IAM projection data: {missing_vars}{PRINT_COLORS["end"]}")
+            log.info(f"{PRINT_COLORS["red"]}Warning: The following variables are missing in the IAM projection data: {missing_vars}{PRINT_COLORS["end"]}")
 
         df_CO2_breakdown = df[df["variable"].isin(vars_downscaling)]
         if net_emissions:
             unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
-            print(f"Unit CO2 emissions: {unit_CO2}")
+            log.info(f"Unit CO2 emissions: {unit_CO2}")
         else:
             unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Gross Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
-            print(f"Unit gross CO2 emissions: {unit_CO2}")
+            log.info(f"Unit gross CO2 emissions: {unit_CO2}")
 
         # process CO2 emissions shipping and aviation
         # mask_CO2_int_shipping = ((df_CO2_breakdown["region_code"] != "World") & (df_CO2_breakdown["variable"] == "Emissions|CO2|Energy|Demand|Bunkers|International Shiping"))
@@ -353,9 +351,9 @@ def process_EM_regions_data(df:pd.DataFrame, years_downscaling:list, varname_dat
         df_CO2_excl_ship_av_AFOLU["unit"] = unit_CO2
 
         # check sum of regions in the year 2020
-        print("Check IMAGE CO2 emissions 2020")
+        log.info("Check IMAGE CO2 emissions 2020 after processing EM regions data:")
         value_CO2_2020_projections = df_CO2_excl_ship_av_AFOLU[df_CO2_excl_ship_av_AFOLU["year"]==2020].groupby(["model", "scenario", "year", "variable", "unit"]).sum().reset_index()["value"]
-        print(f"Emissions 2020: {value_CO2_2020_projections.iloc[0]:,.0f}")
+        log.info(f"Emissions 2020: {value_CO2_2020_projections.iloc[0]:,.0f}")
 
         df_IAM_projection_em_downscaling = df_CO2_excl_ship_av_AFOLU.copy()
         df_IAM_projection_em_downscaling.columns = [col.lower() for col in df_IAM_projection_em_downscaling.columns]

@@ -41,3 +41,7 @@ def round_to_half(n):
 
 def is_int_or_half(n):
     return math.isclose(n % 1, 0) or math.isclose(n % 1, 0.5)
+
+def format_factor(factor):
+    """Return factor as int if it is a whole number, else rounded to two decimals."""
+    return int(factor) if factor.is_integer() else round(factor, 2)

@@ -19,3 +19,12 @@ lat_MidAtlantic = 40 # lat
 # Amsterdam
 lon_Amsterdam = 4.9041
 lat_Amsterdam = 52.3676
+# Rotterdam
+lon_Rotterdam = 4.4777
+lat_Rotterdam = 51.9244
+# The Hague
+lon_The_Hague = 4.3007
+lat_The_Hague = 52.0705
+# Utrecht
+lon_Utrecht = 5.1214
+lat_Utrecht = 52.0907

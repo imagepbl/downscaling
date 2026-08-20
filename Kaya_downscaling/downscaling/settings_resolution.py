@@ -18,9 +18,9 @@ DATASETS = [
     {   "source": "COMPASS",
         "variable": "Population",
         "resolution": {
-            "degrees": 0.1,
-            "minutes": 6,
-            "seconds": 360
+            "degrees": 1/120,
+            "minutes": 0.5,
+            "seconds": 30
         }
     },
     {   "source": "Wang",
@@ -42,9 +42,9 @@ DATASETS = [
     {   "source": "COMPASS",
         "variable": "GDP",
         "resolution": {
-            "degrees": 0.1,
-            "minutes": 6,
-            "seconds": 360
+            "degrees": 1/120,
+            "minutes": 0.5,
+            "seconds": 30
         }
     },
     {   "source": "EDGAR",

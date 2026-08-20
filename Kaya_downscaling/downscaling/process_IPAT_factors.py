@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Tuple
+import logging
 
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -10,8 +11,11 @@ import pandas as pd
 from affine import Affine
 import xarray as xr
 
+from tools.functions_logging import init_logging
 from tools.general_functions import replace_punctuation_in_filenames
 from downscaling.read_process_grid_data import calculate_resolution
+
+local_log, dummy_log = init_logging("log", "log/reading_data/local")
 
 DIR = Path(__file__).parent
 
@@ -341,7 +345,7 @@ def calculate_gdp_per_pop(ds_population, ds_gdp,
 
     #unit_pop = ds_population[varname_POP].attrs["unit"]
     #unit_gdp_ppp = ds_gdp[varname_GDP].attrs["unit"]
-    ds_gdp_per_pop = xr.where((ds_population[varname_POP] > 0), ds_gdp[varname_GDP] / ds_population[varname_POP], float("nan"))
+    ds_gdp_per_pop = ds_gdp[varname_GDP] / ds_population[varname_POP].where(ds_population[varname_POP] > 0)
     ds_gdp_per_pop.name = varname_gpd_per_pop
     ds_gdp_per_pop.attrs["unit"] = f"{unit_gdp_ppp} / {unit_pop}"
 
@@ -536,9 +540,11 @@ def downscale_em_per_gdp(xr_scaling_factor_by:xr.DataArray, varname_em_per_gdp_p
 #************************** EM  *******************************************
 
 def calc_urban_regional_emissions(xr_grid:xr.Dataset, varname:str,
-                                  #xr_IAM_regions_grid_downscaling:xr.Dataset,
                                   xr_urban_classification:xr.Dataset,
-                                  years_downscaling:list) -> pd.DataFrame:
+                                  years_downscaling:list,
+                                  log: logging.Logger=local_log) -> pd.DataFrame:
+    log.info(f"Calculating urban regional emissions for {xr_grid} using {xr_urban_classification}...")
+
     xr_urban_classification = xr_urban_classification.rename({"band_data": "urban_classification"})
     xr_grid["urban_classification"] = xr_urban_classification["urban_classification"].reindex_like(xr_grid, method="nearest", tolerance=1e-5)
 
@@ -564,46 +570,18 @@ def calc_urban_regional_emissions(xr_grid:xr.Dataset, varname:str,
 def calc_regional_values(xr_grid:xr.Dataset, varname:str,
                             xr_IAM_regions_grid_downscaling:xr.Dataset,
                             df_IAM:pd.DataFrame,
-                            years_downscaling:list) -> Tuple[pd.DataFrame, xr.Dataset]:
-
-    # varname_save = varname.replace("|", "_").replace(" ", "_")
-
-    # land_mask = (xr_IAM_regions_grid_downscaling["region_number"] > 0)
-    # ocean_mask = (xr_IAM_regions_grid_downscaling["region_number"] == 0)
-
-    # # Create grid with regional sums for se_indicator (for emissions, only base year)
-    # xr_regional_sums = None
-    # df_output = None
-
-    # # Calculate regional sums for all downscaling years: determine region numbers for each grid cell
-    # print("Determine region numbers for each grid cell")
-    # region_numbers = xr_IAM_regions_grid_downscaling.region_number.compute()
-
-    # # determine regional sums for grid data
-    # print("Determine regional sums for grid data")
-    # if "region_number" not in xr_grid.coords:
-    #     region_numbers_clean = (region_numbers
-    #                             .drop_vars([c for c in region_numbers.coords
-    #                                         if c not in ("y", "x")])
-    #                             .assign_coords(y=xr_grid.y, x=xr_grid.x))
-    #     xr_grid = xr_grid.assign_coords(region_number=region_numbers_clean)
-    # with ProgressBar():
-    #     xr_regional_sums = (xr_grid
-    #                         .sel(time=years_downscaling)
-    #                         .where(land_mask)
-    #                         .groupby("region_number")
-    #                         .sum())
-    # df_regional_sums_compare = None
+                            years_downscaling:list,
+                            log: logging.Logger=local_log) -> Tuple[pd.DataFrame, xr.Dataset]:
 
     # prepare region ids once, outside the loop
     region_ids = xr_IAM_regions_grid_downscaling["region_number"].values.ravel().astype(int)
     n_regions = int(region_ids.max()) + 1
 
     # calculate regional sums one time step at a time using np.bincount
-    print("Determine regional sums for grid data")
+    log.info("Determine regional sums for grid data in calc_regional_values...")
     regional_sums = []
     for year in years_downscaling:
-        print(f"  {year}")
+        log.info(f"  {year}")
         values = xr_grid[varname].sel(time=year).values  # triggers compute for this slice only
         sums = np.bincount(
             region_ids,
@@ -620,10 +598,10 @@ def calc_regional_values(xr_grid:xr.Dataset, varname:str,
             coords={"time": years_downscaling,
                     "region_number": np.arange(n_regions)})})
 
-    print(varname)
+    log.info(varname)
     xr_regional_sums_check = xr_regional_sums.rename({varname: f"{varname}_grid"})
-    print(f"Unique region numbers in regional summations: {np.unique(xr_regional_sums.region_number.values)}")
-    print(f"Years in regional summations: {xr_regional_sums_check.time.values}")
+    log.info(f"Unique region numbers in regional summations: {np.unique(xr_regional_sums.region_number.values)}")
+    log.info(f"Years in regional summations: {xr_regional_sums_check.time.values}")
 
     #---------------------
     # Compare grid and IAM regional sums for se_indicator (for emissions, only 2020)

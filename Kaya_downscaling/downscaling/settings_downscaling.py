@@ -34,6 +34,14 @@ SOURCE_PROFILES = {
         "source_EM":  "CEDS_CMIP7",
         "version_EM": "2025_04_18",
     },
+    "second_round_v2": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",
+    },
     "second_round": {
         "source_POP": "2UP",
         "version_POP": "GHSL_2024_M3",
@@ -57,18 +65,18 @@ SOURCE_PROFILES = {
 # Process flags
 # ---------------------------------------------------------------------------
 process_flags = {
-    "read_process_POP": True,
-    "read_process_GDP_PPP": True,
-    "read_process_EM": True,
-    "process_IAM": True,
-    "process_GDP_POP_grid": True,
-    "process_GDP_per_POP": True,
-    "process_df_EM_per_GDP": True,
-    "process_grid_EM_per_GDP": True,
+    "read_process_POP": False,
+    "read_process_GDP_PPP": False,
+    "read_process_EM": False,
+    "process_IAM": False,
+    "process_GDP_POP_grid": False,
+    "process_GDP_per_POP": False,
+    "process_df_EM_per_GDP": False,
+    "process_grid_EM_per_GDP": False,
     "save_tiffs_intermediate": False,
-    "save_tiffs_results": True,
-    "process_urban_classification": True,
-    "process_SE": True
+    "save_tiffs_results": False,
+    "process_urban_classification": False,
+    "process_SE": False
 }
 
 check_flags = {

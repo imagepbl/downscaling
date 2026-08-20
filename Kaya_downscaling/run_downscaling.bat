@@ -1,5 +1,5 @@
 REM TO DO: make possible to choose between create raster file and run downscaling population or emissions (including scenarios and net/gross emissions) and plot results. Also add option to run sensitivities.
-REM @echo off
+@echo off
 REM set profile=%1
 
 REM **********************************************
@@ -29,16 +29,8 @@ REM GROSS EMISSIONS
 REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions gross
 REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions gross
 
-REM PLOT EMISSIONS
-if not "%profile%"=="" (
-    REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
-    REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions net --global_min -0.007856 --global_max 0.120754
-) else (
-    echo No profile specified, skipping...
-)
-
+@echo on
 REM **********************************************************************************************************************************
-
 REM **********************************************
 REM SENSITIVITIES
 REM **********************************************
@@ -51,18 +43,23 @@ REM Second round (2UP, Murakami, EDGAR)
 pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
 pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
 
+REM Second round (2UP, Murakami, EDGAR)
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round_v2 --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round_v2 --emissions net
+
 REM Third round (2UP, Murakami, CEDS)
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile third_round --emissions net
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile third_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile third_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile third_round --emissions net
 
 REM Fourth round (Zhuang, Murakami, CEDS_CMIP7)
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round --emissions net
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round --emissions net
 
 REM Fifth round (COMPASS, COMPASS, CEDS_CMIP7)
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
 
+@echo off
 REM **********************************************
 REM DOWNSCALE_POPULATION
 REM **********************************************
@@ -75,24 +72,25 @@ REM DOWNSCALE_GDP_PPP
 REM **********************************************
 REM pixi run python main.py --downscale_gdp_ppp --scenario ELV-SSP2-CP --model IMAGE --profile third_round
 
+@echo off
 REM **********************************************
 REM PLOT
 REM **********************************************
 
-REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile first_round
-REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile first_round
+REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile first_round --emissions net
+REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile first_round --emissions net
 
-REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile second_round
-REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile second_round
+REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
+REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
 
-REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile third_round
-REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile third_round
+REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile third_round --emissions net
+REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile third_round --emissions net
 
-REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round
-REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round
+REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round --emissions net
+REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round --emissions net
 
-REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round
-REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round
+REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
+REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
 
 REM **********************************************
 REM UPLOAD

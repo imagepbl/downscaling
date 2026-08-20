@@ -16,6 +16,7 @@
 *.nc
 *.tif
 *.gpkg
+*.parquet
 
 *.png
 *.jpg

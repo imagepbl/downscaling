@@ -3,7 +3,7 @@
         "R_SCRIPT_PATH_keep" :"C:/Users/Roelf003/AppData/Local/Programs/R/R-4.5.1/bin/Rscript.exe"
         },
     "GADM": {
-        "dir_GADM_single" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/single",
+        "dir_GADM_single" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/single database",
         "dir_GADM_geopackage" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/geopackage"
         },
     "US_Census": {
@@ -57,12 +57,6 @@
                 "dir_gdp_ppp_Wang_v7_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GDP_PPP/Wang/processed_version_7",
                 "dir_population_Zhuang_v1_run" : "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/population/processed/Zhuang/processed_version_1"
                 }
-        },
-    "IAM":
-        {"IMAGE":
-            {
-
-            }
         }
 }
 

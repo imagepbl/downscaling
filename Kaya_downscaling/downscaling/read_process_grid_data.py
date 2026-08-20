@@ -51,6 +51,27 @@ chunks = 512  # chunk size for dask operations
 
 local_log, dummy_log = init_logging("log", "log/reading_data/local")
 
+def process_urban_classification_data(project_dir: Path, log: logging.Logger=local_log) -> None:
+    # Combine geopandas dataframe with csv dataframe on GDAM_ID
+
+    gpkg_path = project_dir / Path("/data/input/DLL") / "data_final.gpkg"
+    csv_path = project_dir / Path("/data/input/DLL") / "data_timeseries_70.csv"
+    merged_output_path = project_dir / Path("/data/processed/DLL") / "urban_classification_years.parquet"
+
+    # Only load the ID column plus geometry from the gpkg first, to check the join before pulling everything in
+    gdf = gpd.read_file(gpkg_path, layer="data_final")
+    df_ts = pd.read_csv(csv_path)
+
+    # Check join coverage before committing to a full merge
+    gpkg_ids = set(gdf["GDAM_ID"])
+    csv_ids = set(df_ts["GDAM_id"])
+
+    log.debug("IDs in gpkg but not in csv:", len(gpkg_ids - csv_ids))
+    log.debug("IDs in csv but not in gpkg:", len(csv_ids - gpkg_ids))
+
+    merged_gdf = gdf.merge(df_ts, left_on="GDAM_ID", right_on="GDAM_id", how="left")
+    merged_gdf.to_parquet(merged_output_path)
+
 def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: DatasetReader, rtol=1e-5, atol=1e-8, save_not_close_map=False, chunk_size = 1024, log: logging.Logger=local_log) -> dict:
 
     metadata_match = {
@@ -272,6 +293,15 @@ def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, 
     return ds_rxr
 
 def check_data_locations(da: xr.DataArray, year_check:int) -> list:
+    # add description check_data_locations
+    """
+    Checks the locations of a few data points in a raster dataset.
+
+    Parameters:
+        da (xr.DataArray): The raster dataset to check.
+        year_check (int): The year for which to check data locations.
+    Returns: list: A list of information lines about the data locations.
+    """
     info_lines = []
 
     info_lines.append(f"\nCheck data locations:")
@@ -311,16 +341,15 @@ def check_data_locations(da: xr.DataArray, year_check:int) -> list:
 
     return info_lines
 
-def calculate_resolution(da: xr.DataArray, input_unit="decimal_degrees") -> tuple:
+def calculate_resolution(da: xr.DataArray, input_unit="decimal_degrees", log: logging.Logger=local_log) -> tuple:
     """
     Calculate the spatial resolution of a raster file or rioxarray DataArray.
 
     Parameters:
-        data (str or rxr.DataArray): Path to raster file or a rioxarray DataArray.
-        input_unit (str): Unit of input coordinates (default: "decimal_degrees").
+        - data (str or rxr.DataArray): Path to raster file or a rioxarray DataArray.
+        - input_unit (str): Unit of input coordinates (default: "decimal_degrees").
 
-    Returns:
-        tuple: (arc_seconds, arc_minutes)
+    Returns: tuple: (arc_seconds, arc_minutes)
     """
 
     if isinstance(da, str):
@@ -331,15 +360,15 @@ def calculate_resolution(da: xr.DataArray, input_unit="decimal_degrees") -> tupl
     else:
         da = da
 
-    # list_info.append(f"Calculate resolution for DataArray:")
-    # list_info.append(f"CRS: {da.rio.crs}")
+    log.info(f"Calculate resolution for DataArray: {da}")
+    log.info(f"CRS: {da.rio.crs}")
 
     x_res, y_res = da.rio.resolution()
     x_res = abs(x_res)
     y_res = abs(y_res)
 
     if x_res != y_res:
-        print(f"Warning: Non-uniform resolution detected ({x_res} vs {y_res})")
+        log.info(f"Warning: Non-uniform resolution detected ({x_res} vs {y_res})")
 
     arc_seconds = x_res * 3600
     arc_minutes = x_res * 60
@@ -436,6 +465,22 @@ def print_info_rioxarray(da: xr.DataArray, log: logging.Logger=local_log):
         except Exception as e:
             log.info(f"{attr}: <error accessing: {e}>")
 
+def check_nan(da: xr.DataArray, log: logging.Logger=local_log):
+
+    # Nodata as rioxarray/GDAL sees it
+    log.info(f"rio.nodata: {da.rio.nodata}")                  # active nodata value (often nan after masking)
+    log.info(f"rio.encoded_nodata: {da.rio.encoded_nodata}")  # fill value in the file, if decoded to NaN on read
+
+    # Raw metadata attributes, in case nodata was never registered properly
+    log.info(f"_FillValue attr: {da.attrs.get('_FillValue')}")
+    log.info(f"missing_value attr: {da.attrs.get('missing_value')}")
+    log.info(f"encoding _FillValue: {da.encoding.get('_FillValue')}")
+
+    # Actual NaN content of the array
+    n_nan = int(da.isnull().sum().compute())
+    n_total = da.size
+    log.info(f"NaN cells: {n_nan} of {n_total} ({n_nan / n_total:.1%})")
+
 def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool, save: bool, save_type: str, chunks_size_save: int,
                             varname:str, filepath: Path, aggregation_methods: dict[str, str], log: logging.Logger=local_log) -> xr.Dataset:
         # set_chunks_method is "optimal" or "auto"
@@ -502,9 +547,21 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     log.info(info)
                 else: # factor is float
                     # Use reproject() for non-integer factors (e.g., 1.2, 2.5, etc.)
-                    log.warning(f"Factor {factor} is not an integer, using reproject instead of coarsen")
+                    log.warning(f"Factor {factor} for {ds_rxr} is not an integer, using reproject instead of coarsen")
                     log.info(f"1. Coarsen by float factor {factor} (using reproject)")
+                    log.info("Checking NaN Values")
+                    check_nan(da, log)
+                    log.info(f"Remove nodata values and set to NaN for {varname}")
+                    nodata = da.rio.nodata
+                    if nodata is not None and not np.isnan(nodata):
+                        # tolerance that scales with the size of nodata (one millionth of its magnitude), with a floor of 1e-6 so it never collapses to zero when nodata is 0.
+                        tol = max(abs(nodata) * 1e-6, 1e-6) # nodata for GDP (Murakami) is -3.4e+38
+                        # keep every cell that differs from the nodata value by more than the tolerance; set the rest to NaN.
+                        da = da.where(abs(da - nodata) > tol)
+                    da.rio.write_nodata(np.nan, inplace=True)
 
+                    log.info(f"2. Reproject to new resolution with factor {factor}")
+                    sum_before = float(da.sum().compute())
                     # Calculate new resolution
                     if hasattr(ds_rxr.rio, 'resolution'):
                         current_res_x, current_res_y = ds_rxr.rio.resolution()
@@ -518,14 +575,14 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
 
                     # Choose resampling method based on aggregation
                     if aggregation_method == "sum":
-                        # For sum, use average to preserve totals (values per unit area)
-                        resampling_method = Resampling.average
-                        log.info("Using average resampling for coarsening (sum aggregation)")
+                        # For sum, use sum to preserve totals (values per unit area)
+                        resampling_method = Resampling.sum
+                        log.warning("Using sum resampling for coarsening (sum aggregation)")
                     elif aggregation_method == "mean":
                         resampling_method = Resampling.average
-                        log.info("Using average resampling for coarsening (mean aggregation)")
+                        log.warning("Using average resampling for coarsening (mean aggregation)")
                     else:
-                        log.info(f"Unknown aggregation_method: {aggregation_method}, defaulting to average")
+                        log.warning(f"Unknown aggregation_method: {aggregation_method}, defaulting to average")
                         resampling_method = Resampling.average
 
                     crs = ds_rxr.rio.crs
@@ -535,12 +592,22 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                         da = da.chunk({"time": -1, "y": 500, "x": 500})
 
                     # Reproject handles the transform automatically
-                    da_coarsened = da.rio.reproject(
-                        dst_crs=crs,
-                        resolution=(new_res_x, new_res_y),
-                        resampling=resampling_method
-                    )
+                    da_coarsened = da.rio.reproject(dst_crs=crs, resolution=(new_res_x, new_res_y), resampling=resampling_method)
+                    sum_after = float(da_coarsened.sum().compute())
+                    rel_diff = abs(sum_after - sum_before) / abs(sum_before) if sum_before != 0 else 0.0
+                    # TO DO --> renomalise with
+                    #   da_coarsened = da_coarsened * (sum_before / sum_after)
+                    #   per region
+                    # da_region = xr_IAM_regions_coarse["region_number"].load()
+                    # sum_before_region = da.groupby(xr_IAM_regions_grid["region_number"].load()).sum().compute()
+                    # sum_after_region = da_coarsened.groupby(da_region).sum().compute()
+                    # factors = (sum_before_region / sum_after_region).where(sum_after_region != 0, 1.0)
+                    # factor_grid = factors.sel(region_number=da_region)
+                    # da_coarsened = da_coarsened * factor_grid
 
+                    log.info(f"Sum before: {sum_before:,}, after: {sum_after:,}, rel. diff: {100*rel_diff:.2}%")
+                    if rel_diff > 0.01:
+                        log.warning(f"Coarsening changed the global sum by {rel_diff:.2%}")
                     ds_coarsened = da_coarsened.to_dataset(name=varname)
                     ds_coarsened = ds_coarsened.chunk({"time": -1, "y": "auto", "x": "auto"})
 
@@ -1086,6 +1153,10 @@ def check_values_tiff(filepath:Path, band=1, inlc_inf=False, log: logging.Logger
         log.info(f"Sum of global values: {sum}")
         log.info(f"Average per cell (excluding nodata and zero): {avg}")
 
+def _to_factor(res, lowest_resolution):
+    factor = lowest_resolution / res
+    return int(factor) if factor == int(factor) else round(factor, 100)
+
 def get_coarsening_factors(population_source: str, gdp_source: str, emissions_source: str) -> Tuple[int|float, int|float, int|float, float, float, float]:
     """
     Determines the coarsening factor for each dataset relative to the lowest
@@ -1126,13 +1197,9 @@ def get_coarsening_factors(population_source: str, gdp_source: str, emissions_so
 
     lowest_resolution = max(resolutions.values())
 
-    def to_factor(res):
-        factor = lowest_resolution / res
-        return int(factor) if factor == int(factor) else round(factor, 10)
-
-    coarse_factor_POP = to_factor(resolutions[population_source])
-    coarse_factor_GDP = to_factor(resolutions[gdp_source])
-    coarse_factor_EM  = to_factor(resolutions[emissions_source])
+    coarse_factor_POP = _to_factor(resolutions[population_source], lowest_resolution)
+    coarse_factor_GDP = _to_factor(resolutions[gdp_source], lowest_resolution)
+    coarse_factor_EM  = _to_factor(resolutions[emissions_source], lowest_resolution)
 
     res_min_POP = float(dataset_lookup[(population_source, "Population")]["resolution"]["minutes"])
     res_min_GDP = float(dataset_lookup[(gdp_source, "GDP")]["resolution"]["minutes"])
@@ -2006,7 +2073,6 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     log.info(f"{varname} data:{rxr_SE}")
     da = rxr_SE[varname].isel(time=0)
 
-    log.info(f"\n\n------------calculate_resolution----------------------------------------------------------------------------")
     arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da, input_unit="decimal_degrees")
     log.info(f"{varname} data resolution: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
 
@@ -2126,21 +2192,12 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                     # For NetCDF files, plain xr.open_dataset() is the cleaner entry point, and rioxarray is then used only for the spatial operations it is actually needed for.
                     ds_emissions_CO2_excl_bunkers = ds_emissions_CO2_excl_bunkers.rename({"lat": "y", "lon": "x"})
                     da = ds_emissions_CO2_excl_bunkers[varname]
-                    # n_x = da.sizes["x"]
-                    # n_y = da.sizes["y"]
-                    # x_res = 360.0 / n_x
-                    # y_res = 180.0 / n_y
-                    # lon = np.linspace(-180.0 + x_res / 2, 180.0 - x_res / 2, n_x)
-                    # lat = np.linspace(90.0 - y_res / 2, -90.0 + y_res / 2, n_y)
-                    # da = da.assign_coords(x=lon, y=lat)
-                    # da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
                     da = da.rio.write_crs("EPSG:4326")
                     da.attrs["crs"] = "EPSG:4326"
                     da = da.rio.write_transform()
                     ds_emissions_CO2_excl_bunkers = da.to_dataset(name=varname)
                     ds_emissions_CO2_excl_bunkers, encoding = _clean_dataset_for_netcdf(ds_emissions_CO2_excl_bunkers)
                     ds_emissions_CO2_excl_bunkers.attrs["unit"] = "tonnes CO2/year"
-                    #ds_emissions_CO2_excl_bunkers.to_netcdf(data_dir_EM / f"EDGAR_{version}_GHG_CO2_1970_2020_TOTALS_emi.nc", encoding=encoding)
 
                     log.info(f"Before coarsening:")
                     log.info(f"rio nodata: {PRINT_COLORS["yellow"]}{ds_emissions_CO2_excl_bunkers[varname].rio.nodata}{PRINT_COLORS["end"]}")

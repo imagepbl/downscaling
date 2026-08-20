@@ -316,10 +316,8 @@ def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, scenario:str, var
     plt.savefig(png_file, dpi=300, bbox_inches="tight")
 
 def plot_map(dir_processed:str, da:xr.DataArray, varname:str, add_txt:str, years:list, coarse_factor:int=10):
-    # # Create data for plot
+    # Create data for plot
 
-    #years_plot = [2020, 2030, 2050]
-    # years_plot = [2020]
     # First coarsen to avoid memory errors
     print(f"{type(da)}")
     da_plot_coarsened_plot = (da
@@ -348,8 +346,6 @@ def plot_map(dir_processed:str, da:xr.DataArray, varname:str, add_txt:str, years
     plt.savefig(f"{dir_processed}/figures/map_{varname.replace("|", "_").replace(" ", "_")}{add_txt}_cf_{coarse_factor}.png", dpi=300, bbox_inches="tight")
 
 def plot_hist(dir_processed: Path, ds:xr.Dataset, scenario:str, varname:str, add_txt:str, year:int):
-
-
     # convert to dataframe and sort
     da = ds[varname].sel(time=year)
     df_sorted = da.to_dataframe(name=varname).reset_index().sort_values(by=varname)
