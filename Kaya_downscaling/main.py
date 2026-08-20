@@ -28,27 +28,6 @@ The environment variables `GDAL_DATA`, `PROJ_LIB`, and `PROJ_DATA` are set so th
 In addition, `pyproj.datadir.set_data_dir` is used to explicitly direct PROJ tothe correct data directory at runtime.
 """
 
-# env_root = Path(sys.prefix)
-# share = env_root / "Library" / "share" if os.name == "nt" else env_root / "share"
-
-# gdal_path = share / "gdal"
-# proj_path = share / "proj"
-
-# if (proj_path / "proj.db").is_file():
-#     os.environ["PROJ_DATA"] = str(proj_path)
-#     os.environ["PROJ_LIB"] = str(proj_path)   # PROJ < 9.1 still reads this one
-# if gdal_path.is_dir():
-#     os.environ["GDAL_DATA"] = str(gdal_path)
-
-# from pyproj import datadir
-# datadir.set_data_dir(proj_path)
-
-# print("Check GDAL and PROJ data directories:")
-# print("\tGDAL_DATA location:", gdal_path)
-# print("\tPROJ_LIB location:", proj_path)
-# print("\tproj.db exists:", os.path.exists(os.path.join(proj_path, 'proj.db')))
-# print("\tpyproj data dir:", datadir.get_data_dir())
-
 def _plot_selected_cells(project_dir: Path, xr_em_per_capita_selected: xr.Dataset):
     fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={"projection": ccrs.PlateCarree()})
 

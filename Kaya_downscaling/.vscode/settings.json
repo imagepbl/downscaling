@@ -9,6 +9,8 @@
       "scrollbarSlider.activeBackground": "#FBDD7E"
   },
 
-  "python-envs.defaultEnvManager": "ms-python.python:system"
-
+  "jupyter.runStartupCommands": [
+    "import os",
+    "os.add_dll_directory(r'C:\\Users\\roelfsemam\\downscaling\\Kaya_downscaling\\.pixi\\envs\\default\\Library\\bin')"
+  ]
 }
