@@ -30,7 +30,7 @@ current_dir = Path(__file__).parent
 print(f"Current directory: {current_dir}")
 
 from tools.functions_logging import init_logging
-from tools.general_functions import PRINT_COLORS, replace_punctuation_in_filenames, round_to_half, is_int_or_half, format_factor
+from tools.general_functions import PRINT_COLORS, replace_punctuation_in_filenames, round_to_half, is_int_or_half, format_factor, apply_root_json
 from tools import convert_GIS
 
 import downscaling.plot_maps as plot_maps
@@ -664,7 +664,7 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
 
     # 1.2 Read and process in IAM data
     debug_log.info(f"\n\n1.2. Read and process in IAM data {"-"*25}")
-    if process_flags["process_IAM"]:
+    if process_flags["read_process_IAM"]:
         debug_log.info(f"\n{PRINT_COLORS["green"]}(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net} Reading and processing IAM data...{PRINT_COLORS["end"]}")
         df_IAM = process_IAM_data.read_process_IAM_data(project_dir, scenario, model, file_IAM_model_region_numbers, vars_downscaling)
         file_path = dir_processed / f"IAM_{model}_{scenario}_processed.csv"
@@ -1263,9 +1263,10 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
 
     settings_file = project_dir / "downscaling" / "settings_data_locations.json"
     with open(settings_file, "r") as f:
-        settings_locations = json.load(f)
-        dir_GADM_geopackage = Path(settings_locations["GADM"]["dir_GADM_geopackage"])
-        dir_US_Census_Tiger = Path(settings_locations["US_Census"]["dir_US_Census_TIGER"])
+        data_files = json.load(f)
+    data_files = apply_root_json(data_files, data_files["data_root"])
+    dir_GADM_geopackage = Path(data_files["GADM"]["dir_GADM_geopackage"])
+    dir_US_Census_Tiger = Path(data_files["US_Census"]["dir_US_Census_TIGER"])
     gadm_gpkg_path = dir_GADM_geopackage / "gadm_410-levels.gpkg"
     dir_polygons = Path(f"{dir_processed}/polygons")
 

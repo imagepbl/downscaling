@@ -41,7 +41,7 @@ REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --mo
 
 REM Second round (2UP, Murakami, EDGAR)
 pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
-pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
 
 REM Second round (2UP, Murakami, EDGAR)
 REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round_v2 --emissions net

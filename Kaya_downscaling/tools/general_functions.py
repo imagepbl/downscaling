@@ -1,6 +1,7 @@
 import math
 from datetime import datetime
 from time import time
+from typing import Any
 
 # https://www.geeksforgeeks.org/python/print-colors-python-terminal/
 PRINT_COLORS = {
@@ -45,3 +46,11 @@ def is_int_or_half(n):
 def format_factor(factor):
     """Return factor as int if it is a whole number, else rounded to two decimals."""
     return int(factor) if factor.is_integer() else round(factor, 2)
+
+# used to use a flexible data directory root in settings_data_locations.json
+def apply_root_json(obj, root) -> Any:
+    if isinstance(obj, dict):
+        return {k: apply_root_json(v, root) for k, v in obj.items()}
+    if isinstance(obj, str) and obj.startswith("{data_root}/"):
+        return root.rstrip("/") + "/" + obj[len("{data_root}/"):]
+    return obj

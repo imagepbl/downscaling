@@ -19,6 +19,8 @@ import geopandas as gpd
 import xarray as xr
 import rioxarray as rxr
 
+from tools.general_functions import apply_root_json
+
 colour_red = "\033[91m"
 colour_green = "\033[92m"
 colour_yellow = "\033[93m"
@@ -303,8 +305,10 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
 
     settings_file = project_dir / "downscaling" / "settings_data_locations.json"
     with open(settings_file, "r") as f:
-        settings = json.load(f)
-        data_dir_GADM = Path(settings["GADM"]["dir_GADM_single"])
+        data_files = json.load(f)
+    data_files = apply_root_json(data_files, data_files["data_root"])
+    data_dir_GADM = data_files["GADM"]["dir_GADM_single"]
+    data_dir_GADM = Path(data_dir_GADM)
 
     print("Creating GADM raster file for regions...")
 

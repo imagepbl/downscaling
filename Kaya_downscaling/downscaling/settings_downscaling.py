@@ -65,18 +65,18 @@ SOURCE_PROFILES = {
 # Process flags
 # ---------------------------------------------------------------------------
 process_flags = {
+    "read_process_IAM": False,
     "read_process_POP": False,
     "read_process_GDP_PPP": False,
     "read_process_EM": False,
-    "process_IAM": False,
     "process_GDP_POP_grid": False,
     "process_GDP_per_POP": False,
     "process_df_EM_per_GDP": False,
     "process_grid_EM_per_GDP": False,
-    "save_tiffs_intermediate": False,
-    "save_tiffs_results": False,
-    "process_urban_classification": False,
-    "process_SE": False
+    "save_tiffs_intermediate": True,
+    "save_tiffs_results": True,
+    "process_urban_classification": True,
+    "process_SE": True
 }
 
 check_flags = {

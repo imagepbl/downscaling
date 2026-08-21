@@ -38,7 +38,7 @@ from pathlib import Path
 
 import tqdm
 from tools.functions_logging import init_logging
-from tools.general_functions import PRINT_COLORS
+from tools.general_functions import PRINT_COLORS, apply_root_json
 from .settings_downscaling_cities import NL_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam
 from downscaling.settings_resolution import DATASETS
 
@@ -1220,6 +1220,7 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
     # Read the JSON file
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
+    data_files = apply_root_json(data_files, data_files["data_root"])
     data_original = data_files["grid"]["original"]
     data_run = data_files["grid"]["run"]
 
@@ -1451,6 +1452,7 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
     output_tiff_dir = Path(".")  # default to current directory if not set
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
+    data_files = _apply_root(data_files, data_files["data_root"])
     data_processed = data_files["grid"]["processed"]
 
     match varname:
@@ -1863,6 +1865,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
 
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
+    data_files = _apply_root(data_files, data_files["data_root"])
     data_dir_original = data_files["grid"]["original"]
     data_dir_run = data_files["grid"]["run"]
     data_dir_processed = Path(data_files["grid"]["processed"]["dir_emissions_processed"])
@@ -2172,6 +2175,7 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
 
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
+    data_files = apply_root_json(data_files, data_files["data_root"])
     data_run = data_files["grid"]["run"]
 
     data_dir_EM = Path(".")

@@ -13,7 +13,7 @@ from typing import Tuple, Optional
 
 from tools.functions_logging import init_logging
 from tools.process_GDP import use_gdpuc
-from tools.general_functions import PRINT_COLORS
+from tools.general_functions import PRINT_COLORS, apply_root_json
 from downscaling.read_process_grid_data import print_info_rasterio
 import downscaling.settings_models as settings_models
 
@@ -148,7 +148,7 @@ def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFra
     # Method 4: absolute growth rate from last two time steps
 
     log.info(f"Extrapolating IAM values to convergence year {convergence_year} using method {method}...")
-    
+
     df.columns = [col.lower() for col in df.columns]
     varname = df["variable"].unique()[0]
 
