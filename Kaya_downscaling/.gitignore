@@ -26,14 +26,17 @@
 *.pyc
 __pycache__/
 
-data/*              # ignore everything in data/
+data/*                  # ignore everything in data/
 !data/input/            # except the input/ directory
-data/input/*                # now ignore everything inside input/
-!data/input/models          # except the models/ directory
+data/input/*            # now ignore everything inside input/
+!data/input/models      # except the models/ directory
 !data/output/           # except the output/ directory
 !data/processed/        # except the processed/ directory
 !data/check/            # except the check/ directory
 !data/**/.gitkeep
+
+!downscaling/data/check
+downscaling/data/check/*
 
 figures/**
 !figures/**/
