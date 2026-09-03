@@ -28,3 +28,8 @@ lat_The_Hague = 52.0705
 # Utrecht
 lon_Utrecht = 5.1214
 lat_Utrecht = 52.0907
+
+coord_Amsterdam = [3.0, 7.0, 51.0, 54.0]
+coord_Lima = [-79.03, -75.03, -14.05, -10.05]
+coord_Raleigh = [-80.64, -76.64, 33.77, 37.77]
+coord_NewYork = [-76.01, -72.01, 38.71, 42.71]

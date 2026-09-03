@@ -16,6 +16,7 @@
             "redirectOutput": true,
             //"args": ["--create_GADM_raster", "--resolution", "6.00"],
             //"args": ["--process", "no_copy", "--ssp_baseline", "SSP2"],
+            //"args": ["--process_urban_classification"],
             //"args": ["--downscale_population", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "third_round"],
             //"args": ["--downscale_gdp_ppp", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
             "args": ["--downscale_emissions", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round", "--emissions", "net"],

@@ -19,12 +19,16 @@ from tkinter import filedialog, messagebox
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from scipy.ndimage import distance_transform_edt
+
+import geopandas as gpd
 import rasterio
+import rasterio.features
 import xarray as xr
 import rioxarray as rxr
 import cartopy.crs as ccrs
-import geopandas as gpd
 from geocube.api.core import make_geocube
+from affine import Affine
+import pyogrio
 
 current_dir = Path(__file__).parent
 print(f"Current directory: {current_dir}")
@@ -37,10 +41,13 @@ import downscaling.plot_maps as plot_maps
 import downscaling.read_process_grid_data as process_grid_data
 import downscaling.read_process_IAM_data as process_IAM_data
 import downscaling.process_IPAT_factors as process_IPAT_factors
+
+from downscaling.process_urban_grid_emissions import aggregate_urban_values, calculate_urban_rural_totals
 import downscaling.settings_models as settings_models
-import downscaling.upload_results_ee as upload_results_ee
 import downscaling.settings_downscaling as settings
 from downscaling.settings_downscaling import SOURCE_PROFILES
+from downscaling.settings_downscaling_cities import coord_Amsterdam, coord_Lima, coord_Raleigh, coord_NewYork
+import downscaling.upload_results_ee as upload_results_ee
 
 project_dir = Path(__file__).parent.parent
 log_path = f"{project_dir}/log/downscaling"
@@ -112,6 +119,10 @@ def determine_regions_file(project_dir:Path,
                            res_min_POP:int|float|None, res_min_GDP:int|float|None, res_min_EM:int|float|None,
                            model:str, log:logging.Logger) -> Path:
 
+    '''
+    Determine the appropriate model grid regions file based on the lowest resolution among the datasets (POP, GDP, EM).
+    '''
+
     # determine region grid file
     lowest_resolution_minutes = max(res_min_POP or 0, res_min_GDP or 0, res_min_EM or 0)
     lowest_resolution_minutes = round_to_half(lowest_resolution_minutes)
@@ -135,7 +146,10 @@ def determine_regions_file(project_dir:Path,
 
     return file_path_file_model_grid_regions
 
-def reindex_and_interp(group, id_cols, years_downscaling):
+def reindex_and_interp(group:pd.DataFrame, id_cols:list[str], years_downscaling:list[int]) -> pd.DataFrame:
+    '''
+    Reindex the group DataFrame to include all years in years_downscaling and interpolate missing values.
+    '''
     # keys are the values of the id_cols for this group
     keys = dict(zip(id_cols, group.name if isinstance(group.name, tuple) else (group.name,)))
 
@@ -145,65 +159,6 @@ def reindex_and_interp(group, id_cols, years_downscaling):
             .assign(**keys)
             .assign(value=lambda g: g["value"].interpolate("linear", limit_area="inside"))
             .reset_index())
-
-def aggregate_urban_emissions(xr_emissions: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-                              emissions_varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
-                              region_varname: str = "region_number",
-                              final_year: int = 2100,
-                              log: logging.Logger=debug_tmp_log) -> tuple[xr.Dataset, pd.DataFrame, pd.DataFrame]:
-    '''
-    Aggregate emissions per region and year, based on urban classification.
-    '''
-    if not xr_emissions.chunks:
-        xr_emissions = xr_emissions.chunk({"time": 1, "y": 2048, "x": 2048})
-
-    # Derive available classification years from gdf_urban_classification's column names
-    cluster_years = sorted(int(col.replace("cluster_", ""))
-                        for col in gdf_urban_classification.columns
-                        if col.startswith("cluster_"))
-
-    # Keep only years present in both gdf_urban_classification and xr_emissions
-    log.info(f"Available classification years in gdf_urban_classification: {cluster_years}")
-    emissions_years = set(int(y) for y in xr_emissions["time"].values)
-    common_years = sorted(y for y in (set(cluster_years) & emissions_years) if y <= final_year)
-    if not common_years:
-        raise ValueError("No overlapping years found between gdf_urban_classification and xr_emissions.")
-    log.info(f"Using {len(common_years)} common years: {common_years}")
-
-    # Build one (y, x) urban grid per common year, tagged with a "time" coord
-    log.info(f"Building urban classification grids for {len(common_years)} common years...")
-    urban_slices = []
-    for year in common_years:
-        log.info(year)
-        col_name = f"cluster_{year}"
-        year_gdf = gdf_urban_classification[["geometry", col_name]]
-        year_grid = make_geocube(vector_data=year_gdf, like=xr_emissions, measurements=[col_name])
-        da = year_grid[col_name].rename("urban")
-        da = da.expand_dims(time=[year])
-        urban_slices.append(da)
-
-    log.info(f"Concatenating {len(urban_slices)} urban classification grids along the time dimension...")
-    urban_by_year = xr.concat(urban_slices, dim="time")
-    urban_by_year = urban_by_year.assign_coords(x=xr_emissions["x"], y=xr_emissions["y"])
-    combined = xr.merge([xr_emissions.sel(time=common_years), urban_by_year.to_dataset()], join="exact", compat="no_conflicts")
-    log.info(combined)
-
-    # --- Aggregate emissions per region_number, per year ---
-    log.info(f"Aggregating emissions per {region_varname} for {len(common_years)} years...")
-    da_emissions = combined[emissions_varname]
-    da_region = combined[region_varname].load()
-    da_urban = combined["urban"]
-    # print unique values for da_urban
-    log.info(f"Unique urban values (first year): {np.unique(da_urban.isel(time=0).values)}")
-    urban_emissions = da_emissions.where(da_urban == 1)
-    regional_totals = urban_emissions.groupby(da_region).sum()
-    df_urban_emissions = regional_totals.to_dataframe(name=emissions_varname).reset_index()
-    rural_emissions = da_emissions.where(da_urban == 0)
-    regional_totals = rural_emissions.groupby(da_region).sum()
-    df_rural_emissions = regional_totals.to_dataframe(name=emissions_varname).reset_index()
-
-    df_rural_emissions = regional_totals.to_dataframe(name=emissions_varname).reset_index()
-    return combined, df_urban_emissions, df_rural_emissions
 
 def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: str = "IMAGE", align_resolution: bool = True, profile: str = "default"):
     """Downscale socio-economic (population or GDP) gridded data to match IAM regional projections."""
@@ -283,13 +238,13 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
         raise ValueError(f"Variable '{variable_SE}' not recognized. Supported variables: 'Population', 'GDP|PPP'.")
 
     # create output and processed directories
-    if align_resolution:
-        source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
-    else:
-        source_version_grid = f"{source_SE}_{version_SE}"
+    # if align_resolution:
+    #     source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
+    # else:
+    #     source_version_grid = f"{source_SE}_{version_SE}"
     model_scenario = f"{model}_{scenario}"
-    dir_output = project_dir / "data" / "output" / source_version_grid / model_scenario
-    dir_processed = project_dir / "data" / "processed" / source_version_grid / model_scenario
+    dir_output = project_dir / "data" / "output" / profile / model_scenario
+    dir_processed = project_dir / "data" / "processed" / profile / model_scenario
     print(f"Project directory: {project_dir}")
     print(f"Output directory: {dir_output}")
     print(f"Processed data directory: {dir_processed}")
@@ -297,7 +252,8 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
     dir_processed.mkdir(parents=True, exist_ok=True)
 
     log_path = f"{project_dir}/log/downscaling"
-    debug_log, results_log = init_logging(f"log_downscaling_se_{source_version_grid}_{model_scenario}", log_path)
+    #debug_log, results_log = init_logging(f"log_downscaling_se_{source_version_grid}_{model_scenario}", log_path)
+    debug_log, results_log = init_logging(f"log_downscaling_se_{profile}_{model_scenario}", log_path)
     debug_log.info(SOURCE_PROFILES[profile])
     results_log.info(SOURCE_PROFILES[profile])
 
@@ -528,6 +484,10 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
     debug_log.info(f"\n{PRINT_COLORS["green"]}Total elapsed time: {elapsed_time:,.2f} seconds or ({elapsed_time/60:.2f} minutes).{PRINT_COLORS["end"]}")
 
 def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profile:str="default", net_emissions:bool=True):
+    # pre:
+    # - population, GDP, and emissions gridded data must be pre-processed and available for the given sources and versions (run main.py -- process_grid_data)
+    # - GADM region raster must be created for the given model and resolution (run main.py -- create_GAMD_region_raster)
+    # - urban/region classification data must be available (run main.py -- process_urban_classification)
 
     # Make sure program stops (and not only give a warning) if divided by zero, invalid value, or overvflow
     # Set up logging and warnings
@@ -594,10 +554,11 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     # create output and processed directories
     print(f"Project directory: {project_dir}")
     gross_net = "net" if net_emissions else "gross"
-    source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}_{gross_net}"
+    #source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}_{gross_net}"
     model_scenario = f"{model}_{scenario}"
     dir_output = project_dir / "data" / "output"
-    dir_processed = project_dir / "data" / "processed" / profile / source_version_grid / model_scenario
+    #dir_processed = project_dir / "data" / "processed" / profile / source_version_grid / model_scenario
+    dir_processed = project_dir / "data" / "processed" / profile / model_scenario
     print(f"Output directory: {dir_output}")
     print(f"Processed data directory: {dir_processed}")
     dir_output.mkdir(parents=True, exist_ok=True)
@@ -605,7 +566,8 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     dir_urban = project_dir / "data" / "processed" / "DLL"
 
     log_path = f"{project_dir}/log/downscaling"
-    debug_log, results_log = init_logging(f"downscaling_emissions_{profile}_{source_version_grid}_{model_scenario}", log_path)
+    #debug_log, results_log = init_logging(f"downscaling_emissions_{profile}_{source_version_grid}_{model_scenario}", log_path)
+    debug_log, results_log = init_logging(f"downscaling_emissions_{profile}_{model_scenario}", log_path)
     debug_log.info(f"\n\n{PRINT_COLORS['purple']}{'|'*100}{PRINT_COLORS['end']}")
     debug_log.info(f"{PRINT_COLORS['purple']}Logging started{PRINT_COLORS['end']}")
     debug_log.info(f"{PRINT_COLORS['purple']}{SOURCE_PROFILES[profile]}{PRINT_COLORS['end']}")
@@ -673,7 +635,7 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
         file_path = dir_processed / f"IAM_{model}_{scenario}_processed.csv"
         df_IAM = pd.read_csv(file_path, sep=";")
 
-    # TO DO --> reindex populatoin, GDP, and emissions with xr_IAM_regions_grid to ensure alignment with the grid, especially if the grid has been modified or reprojected.
+    # TO DO --> reindex population, GDP, and emissions with xr_IAM_regions_grid to ensure alignment with the grid, especially if the grid has been modified or reprojected.
     # Now reprojections (for GDP) givea a small error of 0.67%
     #       CHECK: regions_grid needs to have a similar or higher resolution.
     # tolerance = max(new_res_x, new_res_y) / 2
@@ -797,6 +759,10 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     debug_log.info(f"{PRINT_COLORS["green"]}Reading urban classification data from: {dir_urban / 'urban_classification_years.parquet'}{PRINT_COLORS["end"]}")
     path_urban = dir_urban / "urban_classification_years.parquet"
     gdf_urban = gpd.read_parquet(path_urban)
+    # path_urban = dir_urban / "urban_classification_years.gpkg"
+    # layers = pyogrio.list_layers(path_urban)
+    # debug_log.info(f"layers: {layers}")
+    # gdf_urban = gpd.read_file(path_urban)
 
     #----------------------------------------------------------------------------------------------------------------------------------------
     # 2. Process data
@@ -950,11 +916,6 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     # calculate CO2/GDP (PPP) for base year
     xr_em_per_gdp_ppp_by_downscaling = xr_em_by[varname_EM] / xr_gdp_ppp_by[varname_GDP].where(xr_gdp_ppp_by[varname_GDP] != 0)  # Avoid division by zero
 
-    # # check
-    # import dask.config
-    # with dask.config.set(scheduler="single-threaded"):
-    #     _ = xr_em_per_gdp_ppp_by_downscaling.compute()
-
     debug_log.info(xr_em_by[varname_EM].attrs["unit"])
     debug_log.info(xr_gdp_ppp_by[varname_GDP].attrs["unit"])
     xr_em_per_gdp_ppp_by_downscaling.attrs["unit"] = xr_em_by[varname_EM].attrs["unit"] + "/" + xr_gdp_ppp_by[varname_GDP].attrs["unit"]
@@ -987,16 +948,16 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
         # 2.3.1 Calculate grid emissions by applying IPAT factors to population and GDP per capita grids
         debug_log.info(f"\n\n2.3.1 Calculate grid emissions by applying IPAT factors to population and GDP per capita grids {"-"*25}")
         xr_gdp_ppp_per_population_processed = xr_gdp_ppp_per_population.copy()
-        xr_em = (xr_population_processed[varname_POP] * xr_gdp_ppp_per_population_processed[varname_gdp_per_pop] * xr_em_per_gdp_ppp[varname_em_per_gdp_ppp])
-        xr_em = xr_em.to_dataset(name=varname_EM)
-        xr_em[varname_EM].attrs["unit"] = unit_EM
-        xr_em.to_netcdf(em_unharmonised_file, mode="w", engine="netcdf4")
+        xr_emisions_harmonised = (xr_population_processed[varname_POP] * xr_gdp_ppp_per_population_processed[varname_gdp_per_pop] * xr_em_per_gdp_ppp[varname_em_per_gdp_ppp])
+        xr_emisions_harmonised = xr_emisions_harmonised.to_dataset(name=varname_EM)
+        xr_emisions_harmonised[varname_EM].attrs["unit"] = unit_EM
+        xr_emisions_harmonised.to_netcdf(em_unharmonised_file, mode="w", engine="netcdf4")
     else:
-        xr_em = xr.open_dataset(em_unharmonised_file)
+        xr_emisions_harmonised = xr.open_dataset(em_unharmonised_file)
     if process_flags["save_tiffs_intermediate"]:
-        plot_maps.save_to_grid_tiff(dir_processed, xr_em, varname_EM, "_unharmonised", [2020, 2030, 2050], model, scenario)
+        plot_maps.save_to_grid_tiff(dir_processed, xr_emisions_harmonised, varname_EM, "_unharmonised", [2020, 2030, 2050], model, scenario)
 
-    del xr_population_processed, xr_gdp_ppp_processed, xr_gdp_ppp_per_population
+    del xr_gdp_ppp_processed, xr_gdp_ppp_per_population
 
     # 2.3.2 harmonise grid emissions per region with IAM emissions per region
     debug_log.info(f"\n\n2.3.2 Harmonise grid emissions per region with IAM emissions per region {"-"*25}")
@@ -1004,27 +965,32 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     years = df_IAM_EM["year"].unique()
     variable = df_IAM_EM["variable"].unique()[0]
     extra_rows = pd.DataFrame({"model": model, "scenario": scenario, "region_code":"OCEAN", "variable":variable, "year": years, "unit": unit_EM, "region_number": 0, "value": 0})
-    df_IAM_EM_harm = pd.concat([df_IAM_EM, extra_rows], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
-    df_IAM_EM_compare, xr_regional_sums = process_IPAT_factors.calc_regional_values(xr_em, varname_EM,
-                                                                                    xr_IAM_regions_grid_downscaling, df_IAM_EM_harm,
-                                                                                    years_downscaling)
-    csv_file_compare = dir_output / f"Emissions_region_{scenario}_{profile}_unharmonised.csv"
-    df_IAM_EM_compare.to_csv(csv_file_compare, sep=";", index=False)
+    df_IAM_EM_add_ocean = pd.concat([df_IAM_EM, extra_rows], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
+    df_IAM_EM_unharmonised_compare, xr_regional_sums = process_IPAT_factors.calc_regional_values(xr_emisions_harmonised, varname_EM,
+                                                                                                 xr_IAM_regions_grid_downscaling, df_IAM_EM_add_ocean,
+                                                                                                 years_downscaling)
+    df_IAM_EM_unharmonised_compare.drop(columns=["difference", "relative_difference_%", "indicator_grid_xr_million", "indicator_df_million"], inplace=True, errors="ignore")
+    df_IAM_EM_unharmonised_compare.rename(columns={"Emissions_CO2_Excl_shipping_aviation_AFOLU_IAM": "total_iam", "Emissions_CO2_Excl_shipping_aviation_AFOLU_grid_summed": "total_grid"}, inplace=True)
+    df_IAM_EM_unharmonised_compare = df_IAM_EM_unharmonised_compare[[ "year", "region_number", "total_iam", "total_grid"]]
+    df_IAM_EM_unharmonised_compare_World = df_IAM_EM_unharmonised_compare.groupby(["region_number"]).agg({"total_iam": "sum", "total_grid": "sum"}).reset_index()
+    df_IAM_EM_unharmonised_compare = pd.concat([df_IAM_EM_unharmonised_compare, df_IAM_EM_unharmonised_compare_World], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
+    csv_file_compare_unharmonised = dir_output / f"Emissions_region_{scenario}_{profile}_unharmonised.csv"
+    df_IAM_EM_unharmonised_compare.to_csv(csv_file_compare_unharmonised, sep=";", index=False)
 
     # 2.3.3 Calculate harmonisation factor for grid emissions per region with IAM emissions per region
     debug_log.info(f"\n\n2.3.3 Calculate harmonisation factors for grid emissions per region with IAM emissions per region {"-"*25}")
-    xr_em_correction_factors = process_IPAT_factors.calculate_harmonisation_factors_emissions(xr_em, varname_EM, xr_regional_sums,
-                                                                                              xr_IAM_regions_grid_downscaling, df_IAM_EM_harm,
+    xr_em_correction_factors = process_IPAT_factors.calculate_harmonisation_factors_emissions(xr_emisions_harmonised, varname_EM, xr_regional_sums,
+                                                                                              xr_IAM_regions_grid_downscaling, df_IAM_EM_add_ocean,
                                                                                               years_downscaling)
 
     # 2.3.4 apply harmonisation factors to grid emissions
     debug_log.info(f"\n\n2.3.4 Apply harmonisation factors to grid emissions {"-"*25}")
     xr_em_grid_correction = process_IPAT_factors.apply_harmonisation_factors_emissions(xr_em_correction_factors,
-                                                                                       xr_em, varname_EM,
+                                                                                       xr_emisions_harmonised, varname_EM,
                                                                                        xr_IAM_regions_grid_downscaling,
                                                                                        model, scenario)
     xr_em_grid_correction[varname_EM].attrs["unit"] = unit_EM
-    plot_maps.save_to_grid_tiff(dir_processed, xr_em, varname_EM, "_harmonised", years_downscaling, model, scenario)
+    plot_maps.save_to_grid_tiff(dir_processed, xr_emisions_harmonised, varname_EM, "_harmonised", years_downscaling, model, scenario)
 
 
     debug_log.info(f"Variable: {xr_em_grid_correction.data_vars})")
@@ -1040,65 +1006,143 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
 
     debug_log.info(f"\n{PRINT_COLORS["green"]}(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net} Downscaling complete. Processed data saved to {dir_processed} and output to {dir_output}.{PRINT_COLORS["end"]}")
 
-    # calculate sum per region per year for harmonised emissions
-    df_IAM_EM_corrected_compare, xr_regional_sums_corrected = process_IPAT_factors.calc_regional_values(xr_em_grid_correction, varname_EM,
-                                                                                                        xr_IAM_regions_grid_downscaling, df_IAM_EM_harm,
+    # Check: calculate sum per region per year for harmonised emissions
+    df_IAM_EM_harmonised_compare, xr_regional_sums_corrected = process_IPAT_factors.calc_regional_values(xr_em_grid_correction, varname_EM,
+                                                                                                        xr_IAM_regions_grid_downscaling, df_IAM_EM_add_ocean,
                                                                                                         years_downscaling)
-    csv_file_compare_corrected = dir_output / f"Emissions_region_{scenario}_{profile}_harmonised.csv"
-    df_IAM_EM_corrected_compare.to_csv(csv_file_compare_corrected, sep=";", index=False)
+    df_IAM_EM_harmonised_compare.drop(columns=["difference", "relative_difference_%", "indicator_grid_xr_million", "indicator_df_million"], inplace=True, errors="ignore")
+    df_IAM_EM_harmonised_compare.rename(columns={f"{varname_EM}_IAM": "total_iam", f"{varname_EM}_grid_summed": "total_grid"}, inplace=True)
+    df_IAM_EM_harmonised_compare = df_IAM_EM_harmonised_compare[[ "year", "region_number", "total_iam", "total_grid"]]
+    df_IAM_EM_harmonised_compare_World = df_IAM_EM_harmonised_compare.groupby(["region_number"]).agg({"total_iam": "sum", "total_grid": "sum"}).reset_index()
+    df_IAM_EM_harmonised_compare = pd.concat([df_IAM_EM_harmonised_compare, df_IAM_EM_harmonised_compare_World], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
+    csv_file_compare_harmonised = dir_output / f"Emissions_region_{scenario}_{profile}_harmonised.csv"
+    df_IAM_EM_harmonised_compare.to_csv(csv_file_compare_harmonised, sep=";", index=False)
 
     # 2.4 Calculate urban emissions
     debug_log.info(f"\n\n2.4.1 Calculate urban emissions {"-"*25}")
+    combined_em_unharmonised_file =  f"Emissions_urban_region_{scenario}_{profile}_unharmonised.nc"
+    combined_em_unharmonised_path = dir_output / combined_em_unharmonised_file
+    combined_em_harmonised_file =  f"Emissions_urban_region_{scenario}_{profile}_harmonised.nc"
+    combined_em_harmonised_path = dir_output / combined_em_harmonised_file
+    bool_combined_em_files = combined_em_unharmonised_path.is_file() and combined_em_harmonised_path.is_file()
+    # TO DO --> check emissions grids that are not in the polygons, but are in IAM regions
+    # 2.4.1 Calculate or read unharmonised and harmonised urban emissions
+    if process_flags["process_urban_classification_emissions"] or not bool_combined_em_files:
+        debug_log.info(f"\n\n(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net}: {PRINT_COLORS["green"]}Calculating urban emissions...{PRINT_COLORS["end"]}")
+        # add regions to xr_em
+        xr_em_regions = xr_emisions_harmonised.copy()
+        xr_em_regions["region_number"] = xr_IAM_regions_grid_downscaling["region_number"]
 
-    # 2.4.1 Unharmonised
-    debug_log.info(f"\n\n2.4.1 Unharmonised {"-"*25}")
-    debug_log.info(f"\n\n(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net}: {PRINT_COLORS["green"]}Calculating urban emissions...{PRINT_COLORS["end"]}")
-    debug_log.info(f"unharmonised emissions")
-    # add regions to xr_em
-    xr_em_regions = xr_em.copy()
-    xr_em_regions["region_number"] = xr_IAM_regions_grid_downscaling["region_number"]
-    xr_em_urban_unharmonised, df_em_urban_unharmonised, df_em_rural_unharmonised = aggregate_urban_emissions(xr_emissions=xr_em_regions, gdf_urban_classification=gdf_urban,
-                                                                                   emissions_varname=varname_EM,
-                                                                                   region_varname="region_number",
-                                                                                   final_year=2050)
+        # Calcualte unharmonised emissions
+        debug_log.info(f"\n\n2.4.1 Calculate unharmonised emissions {"-"*25}")
+        xr_em_urban_unharmonised = aggregate_urban_values(project_dir, profile=profile, xr_dataset=xr_em_regions, gdf_urban_classification=gdf_urban,
+                                                            varname=varname_EM,
+                                                            region_varname="region_number",
+                                                            final_year=2050,
+                                                            fraction_threshold=0.5, supersample=5, # not used for geocube and rasterio, used for fraction
+                                                            use_saved=True,
+                                                            log=debug_log)
+        xr_em_urban_unharmonised.to_netcdf(combined_em_unharmonised_path, engine="netcdf4")
+        debug_log.info(f"\n\n2.4.2 Calculate harmonised emissions {"-"*25}")
+        xr_em_urban_harmonised = aggregate_urban_values(project_dir, profile=profile, xr_dataset=xr_em_grid_correction, gdf_urban_classification=gdf_urban,
+                                                            varname=varname_EM,
+                                                            region_varname="region_number",
+                                                            final_year=2050,
+                                                            fraction_threshold=0.5, supersample=5, # not used for geocube and rasterio, used for fraction
+                                                            use_saved=True,
+                                                            log=debug_log)
+        xr_em_urban_harmonised.to_netcdf(combined_em_harmonised_path, engine="netcdf4")
+    else:
+        xr_em_urban_unharmonised = xr.open_dataset(combined_em_unharmonised_path, decode_coords="all")
+        xr_em_urban_harmonised = xr.open_dataset(combined_em_harmonised_path, decode_coords="all")
+
+    # 2.4.2 Aggregate unharmonised and harmonised urban emissions per region and year
+    debug_log.info(f"\n\n2.4.2a Aggregate unharmonised emissions {"-"*25}")
+    df_em_urban_unharmonised, df_em_rural_unharmonised = calculate_urban_rural_totals(xr_dataset=xr_em_urban_unharmonised, varname=varname_EM, region_varname="region_number")
     df_em_urban_unharmonised.to_csv(dir_output / f"Emissions_urban_region_{scenario}_{profile}_unharmonised.csv", index=False, sep=";")
-    df_em_rural_unharmonised.to_csv(dir_output / f"Emissions_rural_region_{scenario}_{profile}_unharmonised.csv", index=False, sep=";")
-    # combine dataframes for urban and rural emissions into one dataset, add the sum of urban and rural as "total", and using "urban", "rural" and "total" as a column names
     df_em_urban_unharmonised["Type"] = "urban"
     df_em_rural_unharmonised["Type"] = "rural"
-    df_combined_unharmonised = pd.concat([df_em_urban_unharmonised, df_em_rural_unharmonised], ignore_index=True)
-    df_combined_unharmonised.to_csv(dir_output / f"Emissions_combined_region_{scenario}_{profile}_unharmonised.csv", index=False, sep=";")
-    # add total = urban + rural
-    df_total_unharmonised = df_combined_unharmonised.groupby(["model", "scenario", "region_code", "region_number", "year", "unit"]).agg({"value": "sum"}).reset_index()
-    df_total_unharmonised["Type"] = "total"
-    df_total_unharmonised.to_csv(dir_output / f"Emissions_total_region_{scenario}_{profile}_unharmonised.csv", index=False, sep=";")
-
-    try:
-        xr_em_urban_unharmonised.to_netcdf(dir_output / f"Emissions_urban_region_{scenario}_{profile}_unharmonised.nc", engine="netcdf4")
-    except Exception as e:
-        debug_log.error(f"Error occurred while saving urban emissions NetCDF file: {e}")
+    # combine dataframes for urban and rural emissions into one dataset, add the sum of urban and rural as "total", and using "urban", "rural" and "total" as a column names
+    # also add world and combine with total IAM and grid emissions for comparison
+    df_em_combined_unharmonised = pd.concat([df_em_urban_unharmonised, df_em_rural_unharmonised], ignore_index=True)
+    df_em_combined_unharmonised.drop(columns=["spatial_ref"], inplace=True, errors="ignore")
+    df_em_combined_unharmonised["year"] = df_em_combined_unharmonised["year"].astype(int)
+    df_em_combined_unharmonised= df_em_combined_unharmonised.pivot(index=["year", "region_number"], columns="Type", values="Emissions_CO2_Excl_shipping_aviation_AFOLU").reset_index()
+    df_em_combined_unharmonised["total_urban_rural"] = df_em_combined_unharmonised["urban"] + df_em_combined_unharmonised["rural"]
+    df_em_combined_unharmonised_World = df_em_combined_unharmonised.groupby("year").agg({"urban": "sum", "rural": "sum", "total_urban_rural": "sum"}).reset_index()
+    df_em_combined_unharmonised_World["region_number"] = 28
+    df_em_combined_unharmonised = pd.concat([df_em_combined_unharmonised, df_em_combined_unharmonised_World], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
+    df_em_combined_unharmonised = pd.merge(df_IAM_EM_unharmonised_compare, df_em_combined_unharmonised, on=["year", "region_number"], how="left", suffixes=("_IAM", "_grid"))
+    df_em_combined_unharmonised.to_csv(dir_output / f"Emissions_region_combined_{scenario}_{profile}_unharmonised.csv", index=False, sep=";")
 
     # 2.4.2 Harmonised
-    debug_log.info(f"\n\n2.4.2 Harmonised {"-"*25}")
-    xr_em_urban_harmonised, df_em_urban_harmonised, df_em_rural_harmonised = aggregate_urban_emissions(xr_emissions=xr_em_grid_correction, gdf_urban_classification=gdf_urban,
-                                                                               emissions_varname=varname_EM,
-                                                                               region_varname="region_number",
-                                                                               final_year=2050)
-    df_em_urban_harmonised.to_csv(dir_output / f"Emissions_urban_classification_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
-    df_em_rural_harmonised.to_csv(dir_output / f"Emissions_rural_classification_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
-    # combine dataframes for urban and rural emissions into one dataset, add the sum of urban and rural as "total", and using "urban", "rural" and "total" as a column names
+    debug_log.info(f"\n\n2.4.2b Aggregate harmonised emissions {"-"*25}")
+    df_em_urban_harmonised, df_em_rural_harmonised = calculate_urban_rural_totals(xr_dataset=xr_em_urban_harmonised, varname=varname_EM, region_varname="region_number")
+    df_em_urban_harmonised.to_csv(dir_output / f"Emissions_urban_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
     df_em_urban_harmonised["Type"] = "urban"
     df_em_rural_harmonised["Type"] = "rural"
-    df_combined_harmonised = pd.concat([df_em_urban_harmonised, df_em_rural_harmonised], ignore_index=True)
-    df_combined_harmonised.to_csv(dir_output / f"Emissions_combined_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
-    # add total = urban + rural
-    df_total_harmonised = df_combined_harmonised.groupby(["model", "scenario", "region_code", "region_number", "year", "unit"]).agg({"value": "sum"}).reset_index()
-    df_total_harmonised["Type"] = "total"
-    df_total_harmonised.to_csv(dir_output / f"Emissions_total_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
-    try:
-        xr_em_urban_harmonised.to_netcdf(dir_output / f"Emissions_urban_classification_region_{scenario}_{profile}_harmonised.nc", engine="netcdf4")
-    except Exception as e:
-        debug_log.error(f"Error occurred while saving urban emissions NetCDF file: {e}")
+    # combine dataframes for urban and rural emissions into one dataset
+    df_em_combined_harmonised = pd.concat([df_em_urban_harmonised, df_em_rural_harmonised], ignore_index=True)
+    df_em_combined_harmonised.drop(columns=["spatial_ref"], inplace=True, errors="ignore")
+    df_em_combined_harmonised["year"] = df_em_combined_harmonised["year"].astype(int)
+    df_em_combined_harmonised = df_em_combined_harmonised.pivot(index=["year", "region_number"], columns="Type", values=varname_EM).reset_index()
+    df_em_combined_harmonised["total_urban_rural"] = df_em_combined_harmonised["urban"] + df_em_combined_harmonised["rural"]
+    # add World
+    df_em_combined_harmonised_World = df_em_combined_harmonised.groupby("year").agg({"urban": "sum", "rural": "sum", "total_urban_rural": "sum"}).reset_index()
+    df_em_combined_harmonised_World["region_number"] = 28
+    df_em_combined_harmonised = pd.concat([df_em_combined_harmonised, df_em_combined_harmonised_World], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
+    # add IAM and grid emissions for comparison
+    df_em_combined_harmonised = pd.merge(df_IAM_EM_harmonised_compare, df_em_combined_harmonised, on=["year", "region_number"], how="left", suffixes=("_IAM", "_grid"))
+    df_em_combined_harmonised["ratio_iam_grid"] = df_em_combined_harmonised["total_iam"]/df_em_combined_harmonised["total_grid"]
+    df_em_combined_harmonised["ratio_urban_rural"] = df_em_combined_harmonised["total_iam"]/df_em_combined_harmonised["total_urban_rural"]
+    df_em_combined_harmonised.to_csv(dir_output / f"Emissions_region_combined_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
+
+    # 2.5 Calculate urban population
+    debug_log.info(f"\n\n2.5 Calculate urban population {"-"*25}")
+    combined_pop_harmonised_file =  f"Population_urban_classification_region_{scenario}_{profile}_harmonised.nc"
+    combined_pop_harmonised_path = dir_output / combined_pop_harmonised_file
+    if process_flags["process_urban_classification_population"] or not combined_pop_harmonised_path.is_file():
+        # also calculate aggregated urban population and rural population for each region and year, and save to csv
+        print(f"Check if population grid and IAM regions grid are aligned for urban population calculation...")
+        print(f"\t\tx: {xr_population_processed["x"].equals(xr_IAM_regions_grid_downscaling["x"])}")
+        print(f"\t\ty: {xr_population_processed["y"].equals(xr_IAM_regions_grid_downscaling["y"])}")
+        xr_population_region_processed =xr_population_processed.copy()
+        xr_population_region_processed["region_number"] = xr_IAM_regions_grid_downscaling["region_number"]
+        # Compare IAM, grid, and urban/rural population for each region and year
+        # 1. IAM population per region per year
+        df_popultion_IAM = (df_IAM[df_IAM["variable"] == varname_POP]
+                            .rename(columns={"Value": "total_IAM"}))
+        df_popultion_IAM.columns = df_popultion_IAM.columns.str.lower()
+        # 2. grid population per region per year
+        df_population_region_processed = (xr_population_region_processed[varname_POP]
+                                          .groupby(xr_population_region_processed["region_number"])
+                                          .sum(dim=("y", "x"))
+                                          .to_dataframe(name=varname_POP)
+                                          .reset_index()
+                                          .rename(columns={"time": "year", varname_POP: "total_grid"}))
+        # 3. urban/rural population per region per year
+        xr_pop_urban_harmonised = aggregate_urban_values(project_dir, profile=profile, xr_dataset=xr_population_region_processed, gdf_urban_classification=gdf_urban,
+                                                         varname=varname_POP,
+                                                         region_varname="region_number",
+                                                         final_year=2050,
+                                                         fraction_threshold=0.5, supersample=5,
+                                                         use_saved=True,
+                                                         log=debug_log)
+        xr_pop_urban_harmonised.to_netcdf(dir_output / combined_pop_harmonised_path, engine="netcdf4")
+        df_pop_urban, df_pop_rural = calculate_urban_rural_totals(xr_dataset=xr_pop_urban_harmonised, varname=varname_POP, region_varname="region_number")
+        df_pop_urban.to_csv(dir_output / f"Population_urban_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
+        df_pop_rural.to_csv(dir_output / f"Population_rural_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
+        df_pop_urban["Type"] = "urban"
+        df_pop_rural["Type"] = "rural"
+        df_pop_combined_harmonised = pd.concat([df_pop_urban, df_pop_rural], ignore_index=True)
+        df_pop_combined_harmonised.drop(columns=["spatial_ref"], inplace=True, errors="ignore")
+        df_pop_combined_harmonised= df_pop_combined_harmonised.pivot(index=["year", "region_number"], columns="Type", values="Population").reset_index()
+        df_pop_combined_harmonised["total_urban_rural"] = df_pop_combined_harmonised["urban"] + df_pop_combined_harmonised["rural"]
+        # combine with IAM and grid
+        df_pop_combined_harmonised = pd.merge(df_population_region_processed, df_pop_combined_harmonised, on=["year", "region_number"], how="left", suffixes=("_total", "_urban_rural"))
+        df_pop_combined_harmonised.to_csv(dir_output / f"Population_combined_region_{scenario}_{profile}_harmonised.csv", index=False, sep=";")
+    else:
+        debug_log.info(f"\n\n(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net}: {PRINT_COLORS["green"]}Urban emissions already calculated. Skipping...{PRINT_COLORS["end"]}")
 
     # 2.5 End code
     debug_log.info(f"\n\n2.5 End code {"-"*25}")
@@ -1150,10 +1194,11 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     project_dir = Path(__file__).parent.parent
     print(f"\nProject directory: {project_dir}")
     gross_net = "net" if net_emissions else "gross"
-    source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}_{gross_net}"
+    #source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}_{gross_net}"
     model_scenario = f"{model}_{scenario}"
     #dir_output = project_dir / "data" / "output"
-    dir_processed = project_dir / "data" / "processed" / profile / source_version_grid / model_scenario
+    #dir_processed = project_dir / "data" / "processed" / profile / source_version_grid / model_scenario
+    dir_processed = project_dir / "data" / "processed" / profile / model_scenario
     #print(f"Output directory: {dir_output}")
     print(f"Processed data directory: {dir_processed}")
 
@@ -1245,10 +1290,10 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
 
     # Plot specific cities/towns
     cities_towns = ["Amsterdam", "Lima", "Raleigh", "New York"]
-    coord_Amsterdam = [3.0, 7.0, 51.0, 54.0]
-    coord_Lima = [-79.03, -75.03, -14.05, -10.05]
-    coord_Raleigh = [-80.64, -76.64, 33.77, 37.77]
-    coord_NewYork = [-76.01, -72.01, 38.71, 42.71]
+    # coord_Amsterdam = [3.0, 7.0, 51.0, 54.0]
+    # coord_Lima = [-79.03, -75.03, -14.05, -10.05]
+    # coord_Raleigh = [-80.64, -76.64, 33.77, 37.77]
+    # coord_NewYork = [-76.01, -72.01, 38.71, 42.71]
     coords = [coord_Amsterdam, coord_Lima, coord_Raleigh, coord_NewYork]
 
     # cities_config = [{"name": "Amsterdam", "within_US": False, "iso3": "NLD", "coords": coord_Amsterdam},
@@ -1270,15 +1315,7 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     gadm_gpkg_path = dir_GADM_geopackage / "gadm_410-levels.gpkg"
     dir_polygons = Path(f"{dir_processed}/polygons")
 
-    # for city in cities_config:
-    #     try:
-    #         if city["within_US"]:
-    #             city["polygon"] = convert_GIS.get_us_city_polygon(tiger_dir=dir_US_Census_Tiger, city_name=city["name"], output_dir=dir_polygons)
-    #         else:
-    #             city["polygon"] = convert_GIS.get_city_polygon(gpkg_path=gadm_gpkg_path, iso3=city["iso3"], city_name=city["name"], output_dir=dir_polygons)
-    #     except (ValueError, FileNotFoundError) as e:
-    #         print(f"Warning: Could not load polygon for '{city['name']}': {e}")
-    #         city["polygon"] = None
+    # get city polygon from GADM or US Census TIGER shapefiles
     for city in cities_config:
         names = city.get("sub_cities", [city["name"]])
         polys = []
@@ -1396,9 +1433,10 @@ def plot_results_urban_emissions(model: str, scenario: str):
         source_EM = sources["source_EM"]
         version_EM = sources["version_EM"]
 
-        source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
+        #source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
         model_scenario = f"{model}_{scenario}"
-        dir_processed = project_dir / "data" / "processed" / source_version_grid / model_scenario
+        #dir_processed = project_dir / "data" / "processed" / source_version_grid / model_scenario
+        dir_processed = project_dir / "data" / "processed" / profile / model_scenario
         print(f"Processed data directory: {dir_processed}")
         if dir_processed.exists():
             csv_file = dir_processed / f"df_urban_emissions_{model}_{scenario}.csv"
@@ -1451,13 +1489,16 @@ def upload_to_GEE(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str =
     print(f"Project directory: {project_dir}")
     source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
     model_scenario = f"{model}_{scenario}"
-    dir_output = project_dir / "data" / "output" / source_version_grid / model_scenario
-    dir_processed = project_dir / "data" / "processed" / source_version_grid / model_scenario
+    # TO DO: adjust 'source_version_grid', which is not used anymore in the directory names
+    dir_output = project_dir / "data" / "output"
+    dir_processed = project_dir / "data" / "processed"
     print(f"Output directory: {dir_output}")
     print(f"Processed data directory: {dir_processed}")
 
+    # TO DO: adjust 'source_version_grid', which is not used anymore in the directory names
     upload_results_ee.ensure_ee_authenticated()
-    upload_results_ee.upload_years(scenario, source_version_grid, "all", dir_processed, [2020, 2030, 2050], EE_ASSET_FOLDER)
+    #upload_results_ee.upload_years(scenario, source_version_grid, "all", dir_processed, [2020, 2030, 2050], EE_ASSET_FOLDER)
+    upload_results_ee.upload_years(scenario, profile, "all", dir_processed, [2020, 2030, 2050], EE_ASSET_FOLDER)
 
     end_time = time.time()
     elapsed_time = end_time - start_time

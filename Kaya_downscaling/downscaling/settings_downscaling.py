@@ -65,6 +65,9 @@ SOURCE_PROFILES = {
 # Process flags
 # ---------------------------------------------------------------------------
 process_flags = {
+    # downscale_emissions
+    "save_tiffs_intermediate": False,
+
     "read_process_IAM": False,
     "read_process_POP": False,
     "read_process_GDP_PPP": False,
@@ -73,10 +76,13 @@ process_flags = {
     "process_GDP_per_POP": False,
     "process_df_EM_per_GDP": False,
     "process_grid_EM_per_GDP": False,
-    "save_tiffs_intermediate": True,
+
+    "process_urban_classification_emissions": True,
+    "process_urban_classification_population": True,
+
+    # downscale_SE_data
+    "process_SE": True,
     "save_tiffs_results": True,
-    "process_urban_classification": True,
-    "process_SE": True
 }
 
 check_flags = {

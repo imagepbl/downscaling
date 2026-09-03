@@ -568,11 +568,12 @@ def calc_urban_regional_emissions(xr_grid:xr.Dataset, varname:str,
     return df_emissions_urban_regional_sums
 
 def calc_regional_values(xr_grid:xr.Dataset, varname:str,
-                            xr_IAM_regions_grid_downscaling:xr.Dataset,
-                            df_IAM:pd.DataFrame,
-                            years_downscaling:list,
-                            log: logging.Logger=local_log) -> Tuple[pd.DataFrame, xr.Dataset]:
-
+                         xr_IAM_regions_grid_downscaling:xr.Dataset,
+                         df_IAM:pd.DataFrame,
+                         years_downscaling:list,
+                          log: logging.Logger=local_log) -> Tuple[pd.DataFrame, xr.Dataset]:
+    '''
+    Calculate regional sums for a given variable in the grid dataset and compare with IAM regional values.'''
     # prepare region ids once, outside the loop
     region_ids = xr_IAM_regions_grid_downscaling["region_number"].values.ravel().astype(int)
     n_regions = int(region_ids.max()) + 1

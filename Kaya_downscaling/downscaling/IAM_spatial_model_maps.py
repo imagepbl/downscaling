@@ -289,14 +289,76 @@ def _fill_nearest_neighbour(da: xr.DataArray, max_fill_pixels: int = 1, land_mas
     return da.copy(data=result.astype(da.dtype))
 
 def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, plot=False):
+    """
+    Create a GADM-based country/region raster for a target IAM model (default: IMAGE),
+    and export both NetCDF and GeoTIFF outputs with validation diagnostics.
+
+    This routine builds (or reuses) a country-ID raster derived from GADM vector boundaries,
+    maps each country to an IAM region number, writes combined country/region grids, and
+    prints quality checks to help verify spatial integrity.
+
+    Parameters:
+        project_dir : pathlib.Path
+            Root directory of the project. Used to locate:
+            - input settings (`downscaling/settings_data_locations.json`)
+            - model mapping files (`data/input/models/IMAGE/...`)
+            - output folder (`data/processed/GADM`)
+        model : str, default "IMAGE"
+            IAM model identifier. Current logic is implemented for `"IMAGE"` mappings.
+        resolution_minutes : float, default 0.5
+            Target grid resolution in arc-minutes for GADM rasterization.
+        plot : bool, default False
+            Reserved plotting flag (currently not actively used in this function body).
+
+    Workflow:
+        1. Prepare output directory (`data/processed/GADM`) and load data-location settings.
+        2. Build expected raster filename suffix from requested resolution.
+        3. If country raster does not exist:
+        - Rasterize GADM vector data via `GADM_vector_to_raster(...)`.
+        - Retrieve ISO↔ID mapping returned by rasterization.
+        Else:
+        - Reuse existing raster and read stored ID↔ISO mapping CSV.
+        4. Open the country raster into xarray/rioxarray and read CRS/transform with rasterio.
+        5. For model `"IMAGE"`:
+        - Load country-to-region mapping (ISO3 → IMAGE region code).
+        - Apply manual correction for Greenland (`GRL -> WEU`).
+        - Append HKG and MAC rows to align GADM/model coverage.
+        - Outer-merge model mapping with GADM ID mapping.
+        - Print warnings for ISO codes missing in either source.
+        - Join IMAGE region-code → numeric region table.
+        - Fill missing region numbers with 0, cast dtypes, add ocean row (ID 0 → region 0).
+        - Save country-to-region mapping table to CSV.
+        6. Create `region_number` raster by mapping each `country_id_GADM` pixel to model region.
+        7. Export:
+        - NetCDF: `IMAGE_GADM_regions_raster_<res>_arcmin.nc`
+        - 2-band GeoTIFF: band 1 = country IDs, band 2 = region numbers
+            with original CRS/transform and LZW tiled compression.
+        8. Compute and print effective spatial resolution from coordinates.
+        9. Generate map plots (`plot_countries_regions`) and run raster sanity checks:
+        - sample pixel values at reference longitudes
+        - min/unique values by band
+        - zero/non-zero statistics
+        - count of land pixels with missing region assignment (`country>0 & region==0`)
+
+    Returns:
+        None (results are written to disk; the function primarily performs I/O and diagnostics).
+
+    Outputs:
+        - `iso_codes_raster_<res>.tif` (if newly rasterized)
+        - `IMAGE_GADM_country_to_region_codes.csv`
+        - `IMAGE_GADM_regions_raster_<res>_arcmin.nc`
+        - `IMAGE_GADM_regions_raster_<res>_arcmin.tif` (2-band)
+        - figures in `data/processed/GADM/figures`
+
+    Notes:
+        - The function currently contains model-specific branching only for `"IMAGE"`.
+        - Missing or unmatched ISO entries are handled by assigning region number `0`
+        (treated as ocean/unassigned in diagnostics).
+        - CRS and affine transform are intentionally taken from rasterio to avoid metadata
+        inconsistencies that can occur after intermediate xarray/rioxarray operations.
+    """
     '''
-    Creates a raster and netcdf file with GADM country and model region codes
-    Steps:
-    1. Check if raster file with GADM country codes already exists for the specified resolution, if not create it by converting GADM vector data to raster format using convert_GIS.GADM_vector_to_raster
-    2. Convert GADM raster to rioxarray and retrieve transform and crs using rasterio
-    3. Add model region numbers to GADM raster based on country-region mapping for the specified model
-    4. Extend region numbers to nearest neighbour to fill small gaps in GADM raster (e.g. small islands)
-    5. Save GADM raster with country and region codes to netcdf and tiff files
+
     '''
     dir_GADM = project_dir / "data" / "processed" / "GADM"
     print(f"PROJECT_DIR: {project_dir}")
@@ -327,10 +389,8 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
 
     # 2. convert to rioxarray and rasterio dataset and add model region numbers
     # Open GADM raster file
-    #ds_GADM_raster = xr.open_dataset(iso_GADM_raster_file, decode_coords="all")
     ds_GADM_raster = rxr.open_rasterio(iso_GADM_raster_file)
     ds_GADM_raster = ds_GADM_raster.squeeze("band", drop=True)
-    #ds_GADM_raster = ds_GADM_raster.rename({"band_data":"country_id_GADM"})
     ds_GADM_raster = ds_GADM_raster.to_dataset(name="country_id_GADM")
     print(f"\nGADM raster dataset: {ds_GADM_raster}")
 
@@ -371,7 +431,8 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
         region_numbers_file = project_dir / "data" / "input" / "models" / "IMAGE" / "image_region_numbers.csv"
         df_region_numbers = pd.read_csv(region_numbers_file, sep=",")
         df_model_GADM_region_code_number = pd.merge(df_model_GADM_region_code, df_region_numbers, left_on="Region code", right_on="IMAGE region", how="left")
-        df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "country_name_GADM", "ISO3_GADM", "ISO3_model"], inplace=True)
+        #df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "country_name_GADM", "ISO3_GADM", "ISO3_model"], inplace=True)
+        df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "ISO3_model"], inplace=True)
         df_model_GADM_region_code_number.rename(columns={"id": "country_id_GADM",  "IMAGE number": "model_region_number"}, inplace=True)
         df_model_GADM_region_code_number["model_region_number"] = df_model_GADM_region_code_number["model_region_number"].fillna(0).astype(np.int8)
         # add ocean with region number 0 to mapping
@@ -385,12 +446,12 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
         df_model_GADM_region_code_number.to_csv(f"{dir_GADM}/IMAGE_GADM_country_to_region_codes.csv", sep=";", index=False)
 
     print("\nMerging GADM raster with model region numbers...")
-    # add region numbers to GADM raster
+    # add region numbers to GADM raster (to save memory, inly the GADM country ID and the region number are kept in the raster)
     country_to_region = df_model_GADM_region_code_number.set_index("country_id_GADM")["region_number"].to_dict()
-    ds_GADM_raster["region_number"] = xr.full_like(ds_GADM_raster["country_id_GADM"], fill_value=0, dtype=np.int16)
+    ds_GADM_raster["region_number"] = xr.full_like(ds_GADM_raster["country_id_GADM"], fill_value=0, dtype=np.int16) # Return a new object with the same shape and type as a given object.
     ds_GADM_raster["region_number"] = xr.apply_ufunc(np.vectorize(lambda x: 0 if np.isnan(x) else country_to_region.get(x, 0)),
                                                      ds_GADM_raster["country_id_GADM"],
-                                                     output_dtypes=[np.int16])
+                                                     output_dtypes=[np.int16]) # np.vectorize allows us to apply a function to each element of an array, handling NaN values and missing keys gracefully.
 
     # save to netcdf and tiff
     print(f"CRS: {ds_GADM_raster.rio.crs}")

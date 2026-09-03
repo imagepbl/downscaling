@@ -36,28 +36,24 @@ REM SENSITIVITIES
 REM **********************************************
 
 REM First round (2UP, Wang, EDGAR)
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile first_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile first_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile first_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile first_round --emissions net
 
 REM Second round (2UP, Murakami, EDGAR)
 pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
-
-REM Second round (2UP, Murakami, EDGAR)
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round_v2 --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round_v2 --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
 
 REM Third round (2UP, Murakami, CEDS)
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile third_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile third_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile third_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile third_round --emissions net
 
 REM Fourth round (Zhuang, Murakami, CEDS_CMIP7)
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fourth_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fourth_round --emissions net
 
 REM Fifth round (COMPASS, COMPASS, CEDS_CMIP7)
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
+pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
 
 @echo off
 REM **********************************************

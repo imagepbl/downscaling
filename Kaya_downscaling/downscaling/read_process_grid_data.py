@@ -1,12 +1,14 @@
 import warnings
 import shutil
 import logging
+import time
 from datetime import datetime
 import re
 import calendar
 import cftime
 import json
-
+from pprint import pprint, pformat
+from tabulate import tabulate
 from typing import Tuple, Optional
 
 import numpy as np
@@ -20,6 +22,7 @@ from matplotlib import use as plt_use
 import seaborn as sns
 
 from osgeo import gdal
+import geopandas as gpd
 import rasterio
 import rasterio.plot
 from rasterio.transform import from_bounds
@@ -51,26 +54,7 @@ chunks = 512  # chunk size for dask operations
 
 local_log, dummy_log = init_logging("log", "log/reading_data/local")
 
-def process_urban_classification_data(project_dir: Path, log: logging.Logger=local_log) -> None:
-    # Combine geopandas dataframe with csv dataframe on GDAM_ID
 
-    gpkg_path = project_dir / Path("/data/input/DLL") / "data_final.gpkg"
-    csv_path = project_dir / Path("/data/input/DLL") / "data_timeseries_70.csv"
-    merged_output_path = project_dir / Path("/data/processed/DLL") / "urban_classification_years.parquet"
-
-    # Only load the ID column plus geometry from the gpkg first, to check the join before pulling everything in
-    gdf = gpd.read_file(gpkg_path, layer="data_final")
-    df_ts = pd.read_csv(csv_path)
-
-    # Check join coverage before committing to a full merge
-    gpkg_ids = set(gdf["GDAM_ID"])
-    csv_ids = set(df_ts["GDAM_id"])
-
-    log.debug("IDs in gpkg but not in csv:", len(gpkg_ids - csv_ids))
-    log.debug("IDs in csv but not in gpkg:", len(csv_ids - gpkg_ids))
-
-    merged_gdf = gdf.merge(df_ts, left_on="GDAM_ID", right_on="GDAM_id", how="left")
-    merged_gdf.to_parquet(merged_output_path)
 
 def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: DatasetReader, rtol=1e-5, atol=1e-8, save_not_close_map=False, chunk_size = 1024, log: logging.Logger=local_log) -> dict:
 

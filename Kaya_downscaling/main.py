@@ -16,6 +16,7 @@ import xarray as xr
 import downscaling.downscaling as downscaling
 import downscaling.IAM_spatial_model_maps as IAM_maps
 import downscaling.read_process_grid_data as process_grid_data
+import downscaling.process_urban_grid_emissions as process_urban_grid_emissions
 from tools.general_functions import PRINT_COLORS
 
 """
@@ -28,111 +29,7 @@ The environment variables `GDAL_DATA`, `PROJ_LIB`, and `PROJ_DATA` are set so th
 In addition, `pyproj.datadir.set_data_dir` is used to explicitly direct PROJ tothe correct data directory at runtime.
 """
 
-def _plot_selected_cells(project_dir: Path, xr_em_per_capita_selected: xr.Dataset):
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={"projection": ccrs.PlateCarree()})
 
-    xr_em_per_capita_selected["emissions"].sel(time=2020).plot(ax=ax, x="lon", y="lat", cmap="viridis",
-                                                                transform=ccrs.PlateCarree(),
-                                                                cbar_kwargs={"label": "Emissions per capita"})
-
-    ax.coastlines()
-    ax.add_feature(cfeature.BORDERS, linewidth=0.5)
-    ax.set_title("Selected cells — per capita emissions near threshold, 2020")
-
-    save_path = project_dir / "figures" / "map_emissions_per_capita_selected.png"
-    plt.savefig(save_path, dpi=200, bbox_inches="tight")
-
-def _plot_selected_pathways(project_dir: Path, region_id: int, xr_em_per_capita: xr.Dataset):
-    region_data = xr_em_per_capita["emissions"].where(xr_em_per_capita["region_number"] == region_id)
-
-    df_region = (region_data.to_dataframe(name="emissions")
-                .dropna(subset=["emissions"])
-                .reset_index())
-
-    summary = (df_region.groupby("time")["emissions"]
-            .agg(["min", "max", "median"])
-            .reset_index())
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    ax.scatter(df_region["time"], df_region["emissions"], alpha=0.2, s=10, color="steelblue", label="Individual cells")
-    ax.fill_between(summary["time"], summary["min"], summary["max"], alpha=0.15, color="steelblue", label="Min–max range")
-    ax.plot(summary["time"], summary["median"], color="darkblue", marker="o", label="Median")
-
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Emissions per capita")
-    ax.set_title(f"Per capita emissions over time — region {region_id}")
-    ax.legend()
-
-    save_path = project_dir / "figures" / f"emissions_per_capita_selected_region_{region_id}.png"
-    plt.savefig(save_path, dpi=200, bbox_inches="tight")
-
-def _calc_avg_emissions_per_capita_selected(xr_em_per_capita_selected: xr.Dataset, xr_population: xr.Dataset, arc_minutes: float) -> pd.DataFrame:
-
-    # Align population data to the emissions dataset using nearest neighbor reindexing
-    xr_population_aligned = xr_population.reindex_like(xr_em_per_capita_selected, method="nearest", tolerance=arc_minutes / 60 / 2)
-    emissions_absolute = xr_em_per_capita_selected["emissions"] * xr_population_aligned
-    emissions_absolute = emissions_absolute.rename("emissions_absolute")
-
-    # Calculate total emissions and population per region, andper capita emissions
-    emissions_per_region = (emissions_absolute.groupby(xr_em_per_capita_selected["region_number"])
-                            .sum())
-    population_per_region = (xr_population_aligned.where(~xr_em_per_capita_selected["emissions"].isnull())
-                            .groupby(xr_em_per_capita_selected["region_number"])
-                            .sum())
-    region_per_capita = (emissions_per_region / population_per_region).rename("region_per_capita")
-
-    # add to dataframe
-    df_region_totals = (emissions_per_region.to_dataframe(name="total_emissions")
-                        .reset_index()
-                        .merge(population_per_region.to_dataframe(name="total_population").reset_index(), on="region_number")
-                        .merge(region_per_capita.to_dataframe().reset_index(), on="region_number"))
-
-    return df_region_totals
-
-def select_cells_based_on_per_capita(xr_em_per_capita: xr.Dataset, varname: str,
-                                        xr_population: xr.Dataset,
-                                        per_capita_threshold: float,
-                                        perc_select: float = 0.05, arc_minutes: float = 0.5) -> pd.DataFrame:
-    # pre: xre_em_per_capita has at least two variables: <varname> and "region_number"
-    tolerance = perc_select * per_capita_threshold
-    pop_2020 = xr_em_per_capita[varname].sel(time=2020)
-    mask = ((pop_2020 >= per_capita_threshold - tolerance)
-             & (pop_2020 <= per_capita_threshold + tolerance)).rename("is_match")
-
-    xr_em_per_capita_selected = xr_em_per_capita.where(mask)
-
-    matches_per_region = (mask.assign_coords(region_number=xr_em_per_capita["region_number"])
-                          .groupby("region_number")
-                          .sum())
-    df = (matches_per_region.to_dataframe(name="match_count")
-          .reset_index()
-          .sort_values("region_number")
-          .reset_index(drop=True))
-    print(df.to_string(index=False))
-
-    total_per_region = (xr_em_per_capita["region_number"]
-                        .groupby(xr_em_per_capita["region_number"])
-                        .count()
-                        .to_dataframe(name="total_cells")
-                        .reset_index())
-
-    df = df.merge(total_per_region, on="region_number")
-    df["pct_matching"] = (100 * df["match_count"] / df["total_cells"]).round(1)
-    print(df.to_string(index=False))
-
-    _plot_selected_cells(project_dir, xr_em_per_capita_selected)
-
-    # make range with unique regino_numbers from xr_em_per_capita_selected
-    unique_region_numbers = xr_em_per_capita_selected["region_number"].values.ravel()
-    unique_region_numbers = unique_region_numbers[~np.isnan(unique_region_numbers)].astype(int)
-    for region_id in unique_region_numbers:
-        _plot_selected_pathways(project_dir, region_id, xr_em_per_capita)
-
-    df_region_totals = _calc_avg_emissions_per_capita_selected(xr_em_per_capita_selected, xr_population, arc_minutes)
-    print(df_region_totals.to_string(index=False))
-
-    return df_region_totals
 
 def combine_emissions_output(folder: Path) -> pd.DataFrame:
 
@@ -274,6 +171,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Downscaling emissions to grid level") # add_help=True by default
     parser.add_argument("--process", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
+    parser.add_argument("--process_urban_classification", action="store_true", help="process urban classification data")
     parser.add_argument("--ssp_baseline", type=str, help="baseline scenario from SSP")
 
     parser.add_argument("--create_GADM_raster", action="store_true", help="create GADM raster file for countries")
@@ -300,15 +198,25 @@ if __name__ == "__main__":
 
     arguments = parser.parse_args()
     print(f"Arguments provided: {arguments}")
-    if hasattr(arguments, 'process') and arguments.process is not None:
+    # process
+    # 1. Population, GDP and emissions datasets
+    # 2. Create GADM raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
+    # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
+    if hasattr(arguments, 'process') and arguments.process is True:
         if arguments.ssp_baseline is None:
             parser.error("--processing requires a SSP baseline scenario to be specified with --ssp_base")
-        # Pre-process population, GDP and emissions datasets
+        # 1, Pre-process population, GDP and emissions datasets
         downscaling.process_datasets(project_dir, arguments.ssp_baseline)
-        # Create raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
+    # 2. Create raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
+    if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
+        if arguments.resolution is None:
+            parser.error("--Creating GADM raster requires a resolution to be specified with --resolution")
         IAM_maps.create_GADM_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
-        # process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
-        process_grid_data.process_urban_classification_data(project_dir)
+    # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
+    if hasattr(arguments, 'process_urban_classification') and arguments.process_urban_classification is True:
+        process_urban_grid_emissions.process_urban_classification_data(Path(project_dir))
+
+    # downscale population, GDP and emissions datasets
     if hasattr(arguments, 'downscale_population') and arguments.downscale_population is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
@@ -327,6 +235,8 @@ if __name__ == "__main__":
         else:
             net_emissions = False
         downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, net_emissions)
+
+    # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
@@ -340,15 +250,20 @@ if __name__ == "__main__":
             downscaling.plot_results(arguments.scenario, "IMAGE", arguments.profile, net_emissions, None, None)
         else:
             downscaling.plot_results(arguments.scenario, "IMAGE", arguments.profile, net_emissions, float(arguments.global_min), float(arguments.global_max))
+    # TOOLS
+    # upload results to Google Earth Engine
     if hasattr(arguments, 'upload') and arguments.upload is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--upload requires a scenario to be specified and/or --profile requires a profile to be specified")
         downscaling.upload_to_GEE(arguments.scenario, "IMAGE", arguments.profile)
+    # compare two raster files
     if hasattr(arguments, 'compare') and arguments.compare is True:
         downscaling.compare_two_raster_files()
+    # run urban aggregation
     if hasattr(arguments, 'run_urban_aggregation') and arguments.run_urban_aggregation is True:
         run_aggregration_to_urban("SSP2", rounds)
         combine_emissions_output(project_dir / "data" / "output")
+
     # if no arguments, print message
     if not any(vars(arguments).values()):
         print("No arguments provided. Use -h or --help for more information.")

@@ -158,7 +158,7 @@ def gadm_levels_to_csv(gpkg_file_path: Path, output_dir: Path) -> Path:
     filled with NaN.
 
     Parameters:
-    gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
+    GADM_gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
     output_dir : Path - Directory where the output CSV will be saved.
 
     Returns:
@@ -198,7 +198,7 @@ def gadm_levels_to_csv(gpkg_file_path: Path, output_dir: Path) -> Path:
 
     return out_path
 
-def get_city_polygon(gpkg_path: Path, iso3: str, city_name: str, output_dir: Path, search_levels: list = None, output_format: str = "gpkg") -> gpd.GeoDataFrame:
+def get_city_polygon(GADM_gpkg_path: Path, iso3: str, city_name: str, output_dir: Path, search_levels: list = None, output_format: str = "gpkg") -> gpd.GeoDataFrame:
     """
     Find and save the polygon of a city/town from a local GADM 4.1 levels GeoPackage.
 
@@ -207,7 +207,7 @@ def get_city_polygon(gpkg_path: Path, iso3: str, city_name: str, output_dir: Pat
     The function searches all levels in search_levels and returns all matches.
 
     Parameters:
-    gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
+    GADM_gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
     iso3 : str - ISO 3166-1 alpha-3 country code to filter by (e.g. 'NLD', 'DEU').
     city_name : str - Name of the city/town to search for (case-insensitive).
     output_dir : Path - Directory where the output file will be saved.
@@ -228,7 +228,7 @@ def get_city_polygon(gpkg_path: Path, iso3: str, city_name: str, output_dir: Pat
     for level in search_levels:
         layer = f"ADM_{level}"
         try:
-            gdf = gpd.read_file(gpkg_path, layer=layer)
+            gdf = gpd.read_file(GADM_gpkg_path, layer=layer)
         except Exception as e:
             print(f"Could not read layer {layer}: {e}")
             continue
@@ -489,8 +489,7 @@ def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GIS conversion tools") # add_help=True by default
-    #parser.add_argument("-g", "--process", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
-    #parser.add_argument("-d", "--downscale", action="store_true", help="downscale emissions")
+
     parser.add_argument("-g", "--gpkg_to_shapefile", action="store_true", help="convert GeoPackage to shapefile")
     parser.add_argument("-i", "--IMAGE_regions_netcdf_to_tiff", action="store_true", help="convert IMAGE regions NetCDF to TIFF")
     # include directory argument for add_crs_to_tiff_files
