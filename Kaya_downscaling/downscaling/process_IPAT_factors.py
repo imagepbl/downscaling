@@ -10,12 +10,13 @@ import numpy as np
 import pandas as pd
 from affine import Affine
 import xarray as xr
+from xarray.groupers import UniqueGrouper
 
 from tools.functions_logging import init_logging
 from tools.general_functions import replace_punctuation_in_filenames
 from downscaling.read_process_grid_data import calculate_resolution
 
-local_log, dummy_log = init_logging("log", "log/reading_data/local")
+local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
 DIR = Path(__file__).parent
 
@@ -245,11 +246,12 @@ def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_
     plt.savefig(save_path)
 
 
-def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset, rxr_emissions:xr.Dataset,
+def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
                             varname_population:str, varname_gdp_ppp:str,
                             unit_population:str, unit_gdp_ppp:str,
-                            years_downscaling,
-                            check=False) -> Tuple[xr.Dataset, xr.Dataset]:
+                            base_year, years_downscaling,
+                            check=False,
+                            log:logging.Logger=local_log) -> Tuple[xr.Dataset, xr.Dataset]:
     '''
     1. align coordinates datasets
     2. align downscaling years
@@ -261,52 +263,56 @@ def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset, rxr
     #ds_gdp_aligned = ds_gdp_ppp.copy()
 
     ds_population_downscaling = ds_population.interp(time=years_downscaling, method="linear")
-    print(f"(process_factors_GDP_POP) Years in population grid aligned with downscaling years: {ds_population_downscaling.time.values}")
+    log.info(f"(process_factors_GDP_POP) Years in population grid aligned with downscaling years: {ds_population_downscaling.time.values}")
     ds_gdp_ppp_downscaling = ds_gdp_ppp.interp(time=years_downscaling, method="linear")
-    print(f"(process_factors_GDP_POP) Years in GDP (PPP) grid aligned with downscaling years: {ds_gdp_ppp_downscaling.time.values}")
+    log.info(f"(process_factors_GDP_POP) Years in GDP (PPP) grid aligned with downscaling years: {ds_gdp_ppp_downscaling.time.values}")
+
     # check
     total_pop_2020 = ds_population_downscaling[varname_population].sel(time=2020).sum().compute().item()
     total_gdp_2020 = ds_gdp_ppp_downscaling[varname_gdp_ppp].sel(time=2020).sum().compute().item()
-    print(f"(process_factors_GDP_POP) 1.Total population: {total_pop_2020:,.0f}")
-    print(f"(process_factors_GDP_POP) 1.Total GDP (PPP): {total_gdp_2020:,.0f}")
+    log.info(f"(process_factors_GDP_POP) 1.Total population: {total_pop_2020:,.0f}")
+    log.info(f"(process_factors_GDP_POP) 1.Total GDP (PPP): {total_gdp_2020:,.0f}")
 
-    # # # 1. align coordinates with emissions grid (aligned)
-    # ds_population_aligned = ds_population_downscaling.reindex_like(rxr_emissions.sel(time=2020), method="nearest", tolerance=0.01)
-    ds_population_aligned = ds_population_downscaling.copy()
-    ds_gdp_ppp_aligned = ds_gdp_ppp_downscaling.reindex_like(ds_population_downscaling.sel(time=2020), method="nearest", tolerance=0.01)
+    # 1. align coordinates with emissions grid (aligned)
+    #ds_population_adjusted = ds_population_downscaling.copy().reindex_like(xr_emissions.sel(time=base_year), method="nearest", tolerance=1e-5)
+    ds_population_adjusted = ds_population_downscaling.copy()
+    _, _, deg_pop = calculate_resolution(ds_population_downscaling[varname_population])
+    _, _, deg_gdp = calculate_resolution(ds_gdp_ppp_downscaling[varname_gdp_ppp])
+    tolerance_gdp = max(deg_pop, deg_gdp) / 2
+    ds_gdp_adjusted = ds_gdp_ppp_downscaling.reindex_like(ds_population_adjusted.sel(time=base_year), method="nearest", tolerance=tolerance_gdp)
 
     # 3.set population to 1 where population is nan and gdp is not nan (adjusted)
-    ds_population_adjusted = ds_population_aligned.copy()
-    ds_gdp_adjusted = ds_gdp_ppp_aligned.copy()
-    mask_pop_nan = (ds_population_adjusted[varname_population].isnull()) & (ds_gdp_adjusted["GDP|PPP"]>0)
+    #ds_population_adjusted = ds_population_downscaling.copy()
+    #ds_gdp_adjusted = ds_gdp_ppp_downscaling.copy()
+    mask_pop_nan = (ds_population_adjusted[varname_population].isnull()) & (ds_gdp_adjusted[varname_gdp_ppp]>0)
     total_pop_2020 = None
     check_pop = None
     num_cells_pop_nan_gdp_not_nan_2020 = None
     if check:
-        print("(process_factors_GDP_POP) Checking population and GDP (PPP) datasets after coarsening ...")
+        log.info("(process_factors_GDP_POP) Checking population and GDP (PPP) datasets after coarsening ...")
         total_pop_2020 = ds_population_adjusted[varname_population].sel(time=2020).sum().compute().item()
         total_gdp_2020 = ds_gdp_adjusted[varname_gdp_ppp].sel(time=2020).sum().compute().item()
-        print(f"(process_factors_GDP_POP) Total population: {total_pop_2020:,.0f}")
-        print(f"(process_factors_GDP_POP) Total GDP (PPP): {total_gdp_2020:,.0f}")
+        log.info(f"(process_factors_GDP_POP) Total population: {total_pop_2020:,.0f}")
+        log.info(f"(process_factors_GDP_POP) Total GDP (PPP): {total_gdp_2020:,.0f}")
         mask_pop_nan_2020 = mask_pop_nan.sel(time=2020)
         # check 1: calculate number of cells where population is nan and gdp is not nan
         num_cells_pop_nan_gdp_not_nan_2020 = mask_pop_nan_2020.sum().compute().item()
-        print(f"(process_factors_GDP_POP) Number of cells where population is NaN/zero and GDP (PPP) is not NaN: {num_cells_pop_nan_gdp_not_nan_2020:,.0f}")
+        log.info(f"(process_factors_GDP_POP) Number of cells where population is NaN/zero and GDP (PPP) is not NaN: {num_cells_pop_nan_gdp_not_nan_2020:,.0f}")
         check_pop = total_pop_2020 + num_cells_pop_nan_gdp_not_nan_2020
         # check 2: calculate sum of gdp where population is nan, and also the percentage of total gdp
-        sum_gdp_pop_nan_2020 = ds_gdp_adjusted["GDP|PPP"].sel(time=2020).where(mask_pop_nan_2020).compute().sum().item()
-        print(f"(process_factors_GDP_POP) Sum of GDP (PPP) where population is NaN: {sum_gdp_pop_nan_2020:,.0f}")
+        sum_gdp_pop_nan_2020 = ds_gdp_adjusted[varname_gdp_ppp].sel(time=2020).where(mask_pop_nan_2020).compute().sum().item()
+        log.info(f"(process_factors_GDP_POP) Sum of GDP (PPP) where population is NaN: {sum_gdp_pop_nan_2020:,.0f}")
         percentage_gdp_pop_nan_2020 = (sum_gdp_pop_nan_2020 / total_gdp_2020) * 100 if total_gdp_2020 != 0 else 0
-        print(f"(process_factors_GDP_POP) Percentage of total GDP (PPP) where population is NaN: {percentage_gdp_pop_nan_2020:.2f}%")
+        log.info(f"(process_factors_GDP_POP) Percentage of total GDP (PPP) where population is NaN: {percentage_gdp_pop_nan_2020:.2f}%")
 
     # change values to 1
     ds_population_adjusted[varname_population] = ds_population_adjusted[varname_population].where(~mask_pop_nan, 1)
     # check population after processing
     total_pop_aligned_2020 = ds_population_adjusted[varname_population].sel(time=2020).sum().compute().item()
-    print("--------------------------------")
+    log.info("--------------------------------")
     if check_pop:
-        print(f"(process_factors_GDP_POP) Check: Total population + number of cells with population NaN/zero and GDP not NaN: {check_pop:,.0f}")
-    print(f"Total population + number of cells with population NaN/zero and GDP not NaN: {total_pop_aligned_2020:,.0f}")
+        log.info(f"(process_factors_GDP_POP) Check: Total population + number of cells with population NaN/zero and GDP not NaN: {check_pop:,.0f}")
+    log.info(f"(process_factors_GDP_POP) Total population + number of cells with population NaN/zero and GDP not NaN: {total_pop_aligned_2020:,.0f}")
 
     ds_population_processed = ds_population_adjusted
     ds_gdp_ppp_processed = ds_gdp_adjusted
@@ -322,7 +328,8 @@ def _transforms_are_close(t1: Affine, t2: Affine, rtol: float = 1e-5) -> bool:
 
 def calculate_gdp_per_pop(ds_population, ds_gdp,
                           varname_POP, varname_GDP, varname_gpd_per_pop:str,
-                          unit_pop:str, unit_gdp_ppp:str) -> xr.Dataset:
+                          unit_pop:str, unit_gdp_ppp:str,
+                          log:logging.Logger=local_log) -> xr.Dataset:
     '''
     Calculate GDP per capita
     GDP|PPP / Population
@@ -333,8 +340,8 @@ def calculate_gdp_per_pop(ds_population, ds_gdp,
     crs_gdp = ds_gdp.rio.crs
     transform_pop = ds_population.rio.transform()
     transform_gdp = ds_gdp.rio.transform()
-    print(f"CRS and transform for population dataset: CRS={crs_pop}, \nTransform={transform_pop}")
-    print(f"CRS and transform for GDP dataset: CRS={crs_gdp}, \nTransform={transform_gdp}")
+    log.info(f"CRS and transform for population dataset: CRS={crs_pop}, \nTransform={transform_pop}")
+    log.info(f"CRS and transform for GDP dataset: CRS={crs_gdp}, \nTransform={transform_gdp}")
 
     if crs_pop is None or crs_gdp is None:
         raise ValueError(f"CRS missing: ds_population CRS = {crs_pop}, ds_gdp CRS = {crs_gdp}")
@@ -364,7 +371,8 @@ def calc_scaling_factors_EM_per_GDP(xr_IAM_regions_grid_downscaling:xr.Dataset,
                                     base_year:int,
                                     xr_gdp_ppp_by_downscaling:xr.DataArray,
                                     xr_em_per_gdp_ppp_by_downscaling:xr.DataArray,
-                                    df_IAM_projection_em_per_GDP_PPP_downscaling_extended:pd.DataFrame) -> Tuple[xr.DataArray, np.ndarray, np.ndarray, np.ndarray]:
+                                    df_IAM_projection_em_per_GDP_PPP_downscaling_extended:pd.DataFrame,
+                                    log:logging.Logger=local_log) -> Tuple[xr.DataArray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculate scaling factors for each grid cell based on the ratio of
     emissions per GDP in the base year (2020) between the grid cell and the
@@ -390,13 +398,13 @@ def calc_scaling_factors_EM_per_GDP(xr_IAM_regions_grid_downscaling:xr.Dataset,
 
     # Get unique regions
     vals = xr_IAM_regions_grid_downscaling["region_number"].values
-    regions = np.unique(vals[(vals > 0) & np.isfinite(vals)])
-    print(f"Regions: {regions}")
+    region_numbers = np.unique(vals[(vals > 0) & np.isfinite(vals)])
+    log.info(f"Regions: {region_numbers}")
 
     # Get grid dimensions
     x_coords = xr_gdp_ppp_by_downscaling.x
     y_coords = xr_gdp_ppp_by_downscaling.y
-    print(f"Grid dimensions: x={len(x_coords)}, y={len(y_coords)}")
+    log.info(f"Grid dimensions: x={len(x_coords)}, y={len(y_coords)}")
 
     # Get baseline (2020) grid values
     # baseline_grid = em_per_gdp_by.sel(time=2020).values
@@ -405,11 +413,17 @@ def calc_scaling_factors_EM_per_GDP(xr_IAM_regions_grid_downscaling:xr.Dataset,
     # scaling_factor_by = CO2perGDP_grid(by) / CO2perGDP_region_IAM(by)
     np_scaling_factor_by = np.full((len(y_coords), len(x_coords)), np.nan)
     #convert = one_unit_IMAGE_GDP_PPP / one_unit_IMAGE_em
-    for region_id in regions:
-        region_mask_xr = (xr_IAM_regions_grid_downscaling["region_number"].values == region_id)
+    for region_number in region_numbers:
+        region_mask_xr = (xr_IAM_regions_grid_downscaling["region_number"].values == region_number)
 
-        region_mask_df = (df_IAM_projection_em_per_GDP_PPP_downscaling_extended["region_number"] == region_id) & (df_IAM_projection_em_per_GDP_PPP_downscaling_extended["year"] == base_year)
+        region_mask_df = (df_IAM_projection_em_per_GDP_PPP_downscaling_extended["region_number"] == region_number) & (df_IAM_projection_em_per_GDP_PPP_downscaling_extended["year"] == base_year)
         baseline_regional_IAM = df_IAM_projection_em_per_GDP_PPP_downscaling_extended.loc[region_mask_df, "value"].iloc[0]
+
+        if region_number == 1:
+            log.info(f"Processing region {region_number}: baseline regional IAM value for {base_year} = {baseline_regional_IAM}")
+            log.info(f"em_per_gdp shape: {xr_em_per_gdp_ppp_by_downscaling.shape}")
+            log.info(f"region_mask shape: {xr_IAM_regions_grid_downscaling["region_number"].shape}")
+            log.info(f"np_scaling_factor_by shape: {np_scaling_factor_by.shape}")
 
         if baseline_regional_IAM != 0:
             # Both in grid units now - no conversion needed
@@ -431,7 +445,7 @@ def calc_scaling_factors_EM_per_GDP(xr_IAM_regions_grid_downscaling:xr.Dataset,
     xr_scaling_factor_by = xr_scaling_factor_by.rio.write_crs(xr_em_per_gdp_ppp_by_downscaling.rio.crs)
     xr_scaling_factor_by = xr_scaling_factor_by.rio.write_transform(xr_em_per_gdp_ppp_by_downscaling.rio.transform())
 
-    return xr_scaling_factor_by, regions, x_coords, y_coords
+    return xr_scaling_factor_by, region_numbers, x_coords, y_coords
 
 def downscale_em_per_gdp(xr_scaling_factor_by:xr.DataArray, varname_em_per_gdp_ppp:str,
                          xr_IAM_regions_grid_downscaling:xr.Dataset,
@@ -538,34 +552,6 @@ def downscale_em_per_gdp(xr_scaling_factor_by:xr.DataArray, varname_em_per_gdp_p
     return xr_em_per_gdp_ppp
 
 #************************** EM  *******************************************
-
-def calc_urban_regional_emissions(xr_grid:xr.Dataset, varname:str,
-                                  xr_urban_classification:xr.Dataset,
-                                  years_downscaling:list,
-                                  log: logging.Logger=local_log) -> pd.DataFrame:
-    log.info(f"Calculating urban regional emissions for {xr_grid} using {xr_urban_classification}...")
-
-    xr_urban_classification = xr_urban_classification.rename({"band_data": "urban_classification"})
-    xr_grid["urban_classification"] = xr_urban_classification["urban_classification"].reindex_like(xr_grid, method="nearest", tolerance=1e-5)
-
-    df_emissions_urban_regional_sums = (xr_grid
-                                        .sel(time=years_downscaling)
-                                        .groupby(["region_number", "urban_classification"])
-                                        .sum()
-                                        .to_dataframe()
-                                        .rename(columns={varname: varname})
-                                        .reset_index())
-    df_emissions_urban_regional_sums.drop(["correction_factor", "spatial_ref", "band"], axis=1, inplace=True, errors='ignore')
-
-    # add percentage emissions in urban areas per region
-    group_sum = (df_emissions_urban_regional_sums
-                 .groupby(["region_number", "time"])["Emissions_CO2_Excl_shipping_aviation_AFOLU"]
-                 .transform("sum")
-                .replace(0, np.nan))
-
-    df_emissions_urban_regional_sums["percentage_class"] = (df_emissions_urban_regional_sums["Emissions_CO2_Excl_shipping_aviation_AFOLU"]/ group_sum* 100)
-
-    return df_emissions_urban_regional_sums
 
 def calc_regional_values(xr_grid:xr.Dataset, varname:str,
                          xr_IAM_regions_grid_downscaling:xr.Dataset,

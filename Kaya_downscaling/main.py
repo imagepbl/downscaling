@@ -120,8 +120,8 @@ def run_aggregration_to_urban(SSP_base: str = "SSP2", rounds: dict[str, str] | N
 if __name__ == "__main__":
     '''
     -Process data ('copy' to run folder or 'no_copy)
-    python run main.py --process copy --ssp_baseline SSP2
-    python run main.py --process no_copy --ssp_baseline SSP2
+    python run main.py --process_grid_data --profile first_round --ssp_baseline SSP2
+    python run main.py --process_grid_data --profile second_round --ssp_baseline SSP2
 
     -Create GADM raster for countries
     python run main.py --create_GADM_raster --resolution 6.00
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     -Plot results
     python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
     python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min 0 --global_max 100
-
+7
     -Upload results to Google Earth Engine
     python run main.py --upload --scenario ELV-SSP2-CP --model IMAGE --profile %profile%
 
@@ -170,7 +170,8 @@ if __name__ == "__main__":
               }
 
     parser = argparse.ArgumentParser(description="Downscaling emissions to grid level") # add_help=True by default
-    parser.add_argument("--process", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
+    #parser.add_argument("--process_grid_data", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
+    parser.add_argument("--process_grid_data", action="store_true", help="process datasets")
     parser.add_argument("--process_urban_classification", action="store_true", help="process urban classification data")
     parser.add_argument("--ssp_baseline", type=str, help="baseline scenario from SSP")
 
@@ -202,11 +203,11 @@ if __name__ == "__main__":
     # 1. Population, GDP and emissions datasets
     # 2. Create GADM raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
     # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
-    if hasattr(arguments, 'process') and arguments.process is True:
-        if arguments.ssp_baseline is None:
-            parser.error("--processing requires a SSP baseline scenario to be specified with --ssp_base")
+    if hasattr(arguments, 'process_grid_data') and arguments.process_grid_data is True:
+        if arguments.profile is None or arguments.ssp_baseline is None :
+            parser.error("--processing requires a profile and a SSP baseline scenario to be specified with --ssp_base")
         # 1, Pre-process population, GDP and emissions datasets
-        downscaling.process_datasets(project_dir, arguments.ssp_baseline)
+        downscaling.process_datasets(project_dir, arguments.profile, arguments.ssp_baseline)
     # 2. Create raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
     if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
         if arguments.resolution is None:

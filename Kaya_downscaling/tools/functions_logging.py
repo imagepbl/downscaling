@@ -1,3 +1,5 @@
+import sys
+import threading
 import inspect
 import logging
 import os
@@ -151,5 +153,27 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     # Prevent loggers from propagating to root logger
     debug_logger.propagate = False
     results_logger.propagate = False
+
+        # Route uncaught exceptions (tracebacks) into the logs instead of bare stderr,
+    # so the full error is recorded when the run stops
+    def handle_uncaught(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            # Keep Ctrl+C behaving normally instead of dumping a traceback
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        debug_logger.error("Uncaught exception, run stopped",
+                           exc_info=(exc_type, exc_value, exc_traceback))
+
+    sys.excepthook = handle_uncaught
+
+    # Same for exceptions that die inside worker threads (e.g. dask), Python 3.8+
+    def handle_uncaught_thread(args):
+        if issubclass(args.exc_type, KeyboardInterrupt):
+            return
+        thread_name = args.thread.name if args.thread is not None else "unknown"
+        debug_logger.error("Uncaught exception in thread %s", thread_name,
+                           exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    threading.excepthook = handle_uncaught_thread
 
     return debug_logger, results_logger

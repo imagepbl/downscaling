@@ -17,7 +17,7 @@ from tools.general_functions import PRINT_COLORS, apply_root_json
 from downscaling.read_process_grid_data import print_info_rasterio
 import downscaling.settings_models as settings_models
 
-local_log, dummy_log = init_logging("log", "log/reading_data")
+local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
 model_unit_conversions = {"IMAGE": {"Emissions|CO2": 1e6,  # Mt to t
                                     "GDP|MER": 1e9,        # billion to 1

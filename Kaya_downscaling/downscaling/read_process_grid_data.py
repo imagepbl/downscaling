@@ -40,6 +40,7 @@ import rioxarray as rxr
 from pathlib import Path
 
 import tqdm
+from downscaling.settings_downscaling import SSP_base
 from tools.functions_logging import init_logging
 from tools.general_functions import PRINT_COLORS, apply_root_json
 from .settings_downscaling_cities import NL_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam
@@ -52,9 +53,7 @@ progress_bar.register()
 
 chunks = 512  # chunk size for dask operations
 
-local_log, dummy_log = init_logging("log", "log/reading_data/local")
-
-
+local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
 def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: DatasetReader, rtol=1e-5, atol=1e-8, save_not_close_map=False, chunk_size = 1024, log: logging.Logger=local_log) -> dict:
 
@@ -325,7 +324,7 @@ def check_data_locations(da: xr.DataArray, year_check:int) -> list:
 
     return info_lines
 
-def calculate_resolution(da: xr.DataArray, input_unit="decimal_degrees", log: logging.Logger=local_log) -> tuple:
+def calculate_resolution(da: xr.DataArray, log: logging.Logger=local_log) -> tuple:
     """
     Calculate the spatial resolution of a raster file or rioxarray DataArray.
 
@@ -344,8 +343,11 @@ def calculate_resolution(da: xr.DataArray, input_unit="decimal_degrees", log: lo
     else:
         da = da
 
-    log.info(f"Calculate resolution for DataArray: {da}")
-    log.info(f"CRS: {da.rio.crs}")
+    #log.info(f"Calculate resolution for DataArray: {da}")
+    log.info(f"Meta data for DataArray attrs: {da.attrs}")
+    log.info(f"name={da.name}, dims={da.dims}, shape={da.shape}, dtype={da.dtype}")
+    log.info(f"CRS: {da.rio.crs}, resolution: {da.rio.resolution()}, transform: {da.rio.transform()}")
+    log.info(f"Coords: {da.coords}")
 
     x_res, y_res = da.rio.resolution()
     x_res = abs(x_res)
@@ -1138,6 +1140,9 @@ def check_values_tiff(filepath:Path, band=1, inlc_inf=False, log: logging.Logger
         log.info(f"Average per cell (excluding nodata and zero): {avg}")
 
 def _to_factor(res, lowest_resolution):
+    '''
+    Converts a resolution to a coarsening factor.
+    '''
     factor = lowest_resolution / res
     return int(factor) if factor == int(factor) else round(factor, 100)
 
@@ -1185,11 +1190,35 @@ def get_coarsening_factors(population_source: str, gdp_source: str, emissions_so
     coarse_factor_GDP = _to_factor(resolutions[gdp_source], lowest_resolution)
     coarse_factor_EM  = _to_factor(resolutions[emissions_source], lowest_resolution)
 
-    res_min_POP = float(dataset_lookup[(population_source, "Population")]["resolution"]["minutes"])
-    res_min_GDP = float(dataset_lookup[(gdp_source, "GDP")]["resolution"]["minutes"])
-    res_min_EM = float(dataset_lookup[(emissions_source, "Emissions")]["resolution"]["minutes"])
+    # round to 1 decimal place for minutes
+    res_min_POP = round(float(dataset_lookup[(population_source, "Population")]["resolution"]["minutes"]), 1)
+    res_min_GDP = round(float(dataset_lookup[(gdp_source, "GDP")]["resolution"]["minutes"]), 1)
+    res_min_EM = round(float(dataset_lookup[(emissions_source, "Emissions")]["resolution"]["minutes"]), 1)
 
     return coarse_factor_POP, coarse_factor_GDP, coarse_factor_EM, res_min_POP, res_min_GDP, res_min_EM
+
+def summarize_processed_tiffs(output_tiff_dir: Path, log: logging.Logger=local_log) -> list[dict]:
+    """
+    Collect metadata of the processed TIFFs in a directory and return it as a list of dicts.
+
+    Reads only the raster header (no pixel data), so it stays memory-light even for large
+    global rasters. "year" is parsed from the file name, because a single-band GeoTIFF has
+    no time dimension of its own. Formatting and printing are left to the caller.
+    """
+    files = sorted(output_tiff_dir.glob("*.tif"))
+    if not files:
+        log.info(f"No TIFFs found in {output_tiff_dir} to summarize")
+        return []
+
+    summary = []
+    for f in files:
+        with rasterio.open(f, "r") as src:
+            year_match = re.search(r"(?:18|19|20|21)\d{2}", f.stem)
+            summary.append({"file": f.name, "year": year_match.group() if year_match else None,
+                            "resolution": src.res, "shape": src.shape, "transform": src.transform,
+                            "epsg": src.crs.to_epsg() if src.crs else None, "nodata": src.nodata})
+
+    return summary
 
 def get_parameters_SE(process_data:bool=False, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2", log: logging.Logger=local_log) -> Tuple[Path, str, str, str, str, str, float]:
     # init
@@ -1436,7 +1465,7 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
     output_tiff_dir = Path(".")  # default to current directory if not set
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
-    data_files = _apply_root(data_files, data_files["data_root"])
+    data_files = apply_root_json(data_files, data_files["data_root"])
     data_processed = data_files["grid"]["processed"]
 
     match varname:
@@ -1761,8 +1790,6 @@ def compute_annual_emissions(ds):
 
 def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", version:str="GHSL_2024_M3", SSP_base:str="SSP2", copy=False, log: logging.Logger=local_log):
 
-    #log, log = init_logging(f"log_pre_process_{varname.replace("|", "_")}_{source}_{version}", "log/reading_data")
-
     #-------------------------------------------------------------------------------------------------------------------
     log.info("\n\n********************************PROCESS DATA****************************************************************************")
     log.info("\n\n**********************************PROCESS DATA**************************************************************************")
@@ -1811,6 +1838,14 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
                     shutil.copy(f, run_tiff_path)
                     log.info(f"Copied {f} to {run_tiff_path}")
 
+    # 4. Summarize processed NetifftCDF files
+    if data_dir_processed != Path("."):
+        summary = summarize_processed_tiffs(data_dir_processed, log=log)
+        if summary:
+            df_summary = pd.DataFrame(summary)
+            df_summary.to_csv(data_dir_processed / f"summary_{varname.replace("|", "_")}_{source}_{version}_{SSP_base}.csv", index=False)
+            log.info(f"Summary of processed data ({varname}, {source}, {version}, {SSP_base}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}")
+
 def _read_in_nc(data_dir_original_source:Path, glob_pattern:str, search_pattern:str, varname_source:str, varname_processed:str, log: logging.Logger):
     # read in nc files
     files = sorted(data_dir_original_source.glob(glob_pattern))
@@ -1835,9 +1870,66 @@ def _read_in_nc(data_dir_original_source:Path, glob_pattern:str, search_pattern:
 
     return xr_data
 
-def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviation, AFOLU", source:str="CEDS_CMIP7", version:str="2025_04_18", copy=False, log: logging.Logger=local_log):
+def _summarize_processed_netcdf(output_nc_dir: Path, varname: str=None, log: logging.Logger=local_log) -> list[dict]:
+    """
+    Collect metadata of the processed NetCDF files in a directory and return it as a list of dicts.
 
-    #log, log = init_logging(f"log_pre_process_{varname.replace("|", "_")}_{source}_{version}", "log/reading_data")
+    Uses xarray's lazy open, so only coordinates and headers are read, not the (large) data arrays.
+    Unlike the single-band GeoTIFFs, these files carry a real "time" coordinate, so years are read
+    from that coordinate rather than parsed from the file name.
+
+    transform and EPSG are derived through rioxarray and are only present when the file stores
+    spatial/CRS information; a plain lat/lon CF grid usually leaves EPSG empty. nodata is read from
+    the variable encoding/attributes (_FillValue), not a dedicated field.
+    """
+    files = sorted(output_nc_dir.glob("*.nc"))
+    if not files:
+        log.info(f"No NetCDF files found in {output_nc_dir} to summarize")
+        return []
+
+    summary = []
+    for f in files:
+        with xr.open_dataset(f) as ds:
+            var = varname if varname in ds.data_vars else list(ds.data_vars)[0]
+            da = ds[var]
+
+            years = None
+            if "time" in da.coords:
+                time_vals = np.atleast_1d(da["time"].values)
+                if np.issubdtype(time_vals.dtype, np.datetime64):
+                    years = sorted(set(pd.DatetimeIndex(time_vals).year.tolist()))
+                elif time_vals.dtype == object:  # cftime objects, which expose a .year attribute
+                    years = sorted({int(t.year) for t in time_vals})
+                else:  # plain numeric time coordinate, e.g. int64 years like 1970, 1971, ...
+                    years = sorted({int(v) for v in time_vals})
+
+            y_dim = "lat" if "lat" in da.dims else ("y" if "y" in da.dims else None)
+            x_dim = "lon" if "lon" in da.dims else ("x" if "x" in da.dims else None)
+            shape = (da.sizes[y_dim], da.sizes[x_dim]) if y_dim and x_dim else tuple(da.shape)
+
+            resolution = None
+            if y_dim and x_dim and da.sizes[x_dim] > 1 and da.sizes[y_dim] > 1:
+                res_x = abs(float(da[x_dim][1] - da[x_dim][0]))
+                res_y = abs(float(da[y_dim][1] - da[y_dim][0]))
+                resolution = (res_x, res_y)
+
+            transform, epsg = None, None
+            if x_dim and y_dim:
+                try:
+                    da_rio = da.rio.set_spatial_dims(x_dim=x_dim, y_dim=y_dim, inplace=False)
+                    transform = da_rio.rio.transform(recalc=True)
+                    epsg = da_rio.rio.crs.to_epsg() if da_rio.rio.crs else None
+                except Exception as e:
+                    log.info(f"Could not derive transform/EPSG for {f.name}: {e}")
+
+            nodata = da.encoding.get("_FillValue", da.attrs.get("_FillValue", da.attrs.get("missing_value")))
+
+            summary.append({"file": f.name, "variable": var, "years": years, "resolution": resolution,
+                            "shape": shape, "transform": transform, "epsg": epsg, "nodata": nodata})
+
+    return summary
+
+def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviation, AFOLU", source:str="CEDS_CMIP7", version:str="2025_04_18", copy=False, log: logging.Logger=local_log):
 
     #-------------------------------------------------------------------------------------------------------------------
     log.info("\n\n********************************PROCESS DATA****************************************************************************")
@@ -1849,7 +1941,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
 
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
-    data_files = _apply_root(data_files, data_files["data_root"])
+    data_files = apply_root_json(data_files, data_files["data_root"])
     data_dir_original = data_files["grid"]["original"]
     data_dir_run = data_files["grid"]["run"]
     data_dir_processed = Path(data_files["grid"]["processed"]["dir_emissions_processed"])
@@ -1937,7 +2029,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
             match version:
                 case "2025_04_18":
                     data_dir_original_source = Path(data_dir_original["dir_emissions_CEDS_CMIP7_original"])
-                    data_dir_run_source = Path(data_dir_run["dir_emissions_CEDS_CMIP7_run"])
+                    data_dir_run_source = Path(data_dir_run["dir_emissions_CEDS_CMIP7_v2025_run"])
                     data_dir_processed_source = data_dir_processed / source / version
                     data_dir_processed_source.mkdir(parents=True, exist_ok=True)
 
@@ -2004,6 +2096,14 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                     shutil.copy(f, run_tiff_path)
                     log.info(f"Copied {f} to {run_tiff_path}")
 
+    # 4. Summarize processed NetCDF files
+    if data_dir_processed_source is not None:
+        summary = _summarize_processed_netcdf(data_dir_processed_source, varname=varname, log=log)
+        if summary:
+            df_summary = pd.DataFrame(summary)
+            df_summary.to_csv(data_dir_processed_source / f"summary_{varname.replace("|", "_")}_{source}_{version}.csv", sep=";", index=False)
+            log.info(f"Summary of processed data ({varname}, {source}, {version}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}")
+
 def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2",
                                          coarse_factor:float=1, unit:str="", save: bool=False, check: bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path]:
     '''
@@ -2017,7 +2117,6 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     Filename_population, filename_GDP, filename_CO2
     '''
 
-    #log, log = init_logging(f"log_read_{varname.replace("|", "_")}_{source}_{version}", "log/reading_data")
     year_check = 2020
     base_year = 2015
 
@@ -2055,13 +2154,14 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     log.info(f"rio nodata: {PRINT_COLORS["yellow"]}{rxr_SE[varname].rio.nodata}{PRINT_COLORS["end"]}")
     log.info(f"_FillValue: {PRINT_COLORS["yellow"]}{rxr_SE[varname].encoding.get("_FillValue")}{PRINT_COLORS["end"]}")
     log.info(f"crs: {PRINT_COLORS["yellow"]}{rxr_SE.rio.crs}{PRINT_COLORS["end"]}")
+
+    arc_seconds, arc_minutes, arc_degrees = calculate_resolution(rxr_SE[varname])
+    log.info(f"{PRINT_COLORS["yellow"]}Before coarsening: resolution {varname} grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees{PRINT_COLORS["end"]}")
+
     info = print_transform(rxr_SE.rio.transform())
     log.info(f"transform: {PRINT_COLORS["yellow"]}{info}{PRINT_COLORS["end"]}")
     log.info(f"{varname} data:{rxr_SE}")
     da = rxr_SE[varname].isel(time=0)
-
-    arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da, input_unit="decimal_degrees")
-    log.info(f"{varname} data resolution: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
 
     if check:
         # count number of cells for the year 2020: total, zero, positive, negative and nan values
@@ -2090,21 +2190,18 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
                                                 filepath=rxr_filepath,
                                                 aggregation_methods={varname: "sum"},
                                                 log=log)
+    rxr_SE_coarsened[varname].attrs["unit"] = unit
+
     log.info(f"\n\n************after coarsening***************************************************************************")
     log.info(f"After coarsening:")
-    #log.info(f"_FillValue: {PRINT_COLORS["yellow"]}{rxr_SE_coarsened[varname].encoding.get('_FillValue')}{PRINT_COLORS["end"]}")
-    #log.info(f"nodata: {PRINT_COLORS["yellow"]}{rxr_SE_coarsened[varname].rio.nodata}{PRINT_COLORS["end"]}")  #netcdf does not store nodata in rio attributes
     log.info(f"attrs nodata (stored, not used): {PRINT_COLORS["yellow"]}{rxr_SE_coarsened.attrs.get("source_nodata", None)}{PRINT_COLORS["end"]}")
     log.info(f"crs: {PRINT_COLORS["yellow"]}{rxr_SE_coarsened.rio.crs}{PRINT_COLORS["end"]}")
     info = print_transform(rxr_SE_coarsened.rio.transform())
     log.info(f"transform: {PRINT_COLORS["yellow"]}{info}{PRINT_COLORS["end"]}")
 
-    da = rxr_SE_coarsened[varname].isel(time=0)
-    arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da, input_unit="decimal_degrees")
-    log.info("************************************************************************************************************")
-    log.info(f"{varname} data resolution: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
-
-    rxr_SE_coarsened[varname].attrs["unit"] = unit
+    #da = rxr_SE_coarsened[varname].isel(time=0)
+    arc_seconds, arc_minutes, arc_degrees = calculate_resolution(rxr_SE_coarsened[varname])
+    log.info(f"{PRINT_COLORS["yellow"]}After coarsening: resolution {varname} grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees{PRINT_COLORS["end"]}")
 
     if check:
         # count number of cells for the year 2020: total, zero, positive, negative and nan values
@@ -2143,9 +2240,7 @@ def _clean_dataset_for_netcdf(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
 
 def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_shipping_aviation_AFOLU", unit="tonnes CO2/year", source:str="EDGAR", version="2024",
                               base_year=2020, coarse_factor:float=1, save:bool=False, check:bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path]:
-    # Read CO2 emissions data
-
-    #log, log = init_logging("log_read_EM", "log/reading_data")
+    # Read CO2 emissions data)
 
     log.info("\n\n*************************************RUN emissions DATA*********************************************************")
     log.info("\n\n***************************************RUN DATA*********************************************************************")
@@ -2278,7 +2373,6 @@ def read_processed_grid_data(data_dir: Path, file: Optional[Path], varname: str,
 
 def main():
     pass
-    # log, log = init_logging("log_main", "log/reading_data")
 
     # project_dir = Path(__file__).parent
     # log.info(f"Project directory: {project_dir}")

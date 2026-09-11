@@ -34,14 +34,6 @@ SOURCE_PROFILES = {
         "source_EM":  "CEDS_CMIP7",
         "version_EM": "2025_04_18",
     },
-    "second_round_v2": {
-        "source_POP": "2UP",
-        "version_POP": "GHSL_2024_M3",
-        "source_GDP": "Murakami",
-        "version_GDP": "version_2021_1",
-        "source_EM":  "EDGAR",
-        "version_EM": "2024",
-    },
     "second_round": {
         "source_POP": "2UP",
         "version_POP": "GHSL_2024_M3",
@@ -66,16 +58,16 @@ SOURCE_PROFILES = {
 # ---------------------------------------------------------------------------
 process_flags = {
     # downscale_emissions
-    "save_tiffs_intermediate": False,
+    "save_tiffs_intermediate": True,
 
-    "read_process_IAM": False,
-    "read_process_POP": False,
-    "read_process_GDP_PPP": False,
-    "read_process_EM": False,
-    "process_GDP_POP_grid": False,
-    "process_GDP_per_POP": False,
-    "process_df_EM_per_GDP": False,
-    "process_grid_EM_per_GDP": False,
+    "read_process_IAM": True,
+    "read_process_POP": True,
+    "read_process_GDP_PPP": True,
+    "read_process_EM": True,
+    "process_GDP_POP_grid": True,
+    "process_GDP_per_POP": True,
+    "process_df_EM_per_GDP": True,
+    "process_grid_EM_per_GDP": True,
 
     "process_urban_classification_emissions": True,
     "process_urban_classification_population": True,
@@ -89,7 +81,7 @@ check_flags = {
     "check_POP_data": False,
     "check_GDP_data": False,
     "check_EM_data": False,
-    "check_GDP_POP": False,
+    "check_GDP_POP": True,
     "check_IAM_data": False,
     "check_IAM_grid_data": False,
     "check_grid_GDP_per_pop": False,

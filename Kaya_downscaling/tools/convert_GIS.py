@@ -9,6 +9,7 @@ import pandas as pd
 
 from pyproj import Transformer
 from shapely.ops import transform as shapely_transform
+from shapely.geometry.base import BaseGeometry
 
 import rasterio
 from rasterio.crs import CRS
@@ -270,7 +271,8 @@ def get_city_polygon(GADM_gpkg_path: Path, iso3: str, city_name: str, output_dir
         raise ValueError(f"Unsupported output format: {output_format}")
 
     print(f"Saved city polygon to: {out_path}")
-    return gdf_result
+
+    return gdf_result.geometry.union_all()
 
 def get_us_city_polygon(tiger_dir: Path, city_name: str, output_dir: Path, output_format: str = "gpkg") -> gpd.GeoDataFrame:
     """
@@ -339,7 +341,8 @@ def get_us_city_polygon(tiger_dir: Path, city_name: str, output_dir: Path, outpu
         raise ValueError(f"Unsupported output format: {output_format}")
 
     print(f"Saved city polygon to: {out_path}")
-    return gdf_result
+
+    return gdf_result.geometry.union_all()
 
 def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, city_name: str) -> dict:
     """
@@ -356,8 +359,8 @@ def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, 
     da : xr.DataArray - DataArray to calculate emissions for. Should already
         be spatially subsetted (e.g. via clip_box) and have a CRS set.
         Must have 'x'/'y' or 'lon'/'lat' dimensions.
-    polygon : gpd.GeoDataFrame - GeoDataFrame with the city/town polygon.
-        Must be in EPSG:4326 or will be reprojected to match da.
+    polygon : BaseGeometry - Single shapely (multi)polygon for the city/town,
+        assumed to be in the same CRS as da (EPSG:4326).
     city_name : str - Name of the city/town, used for logging only.
 
     Returns:
@@ -386,20 +389,26 @@ def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, 
         "n_pixels_any": 0,
     }
 
-    if polygon is None or polygon.empty:
+    if polygon is None or polygon.is_empty:
         print(f"Warning: No polygon available for '{city_name}', skipping emission calculation.")
         return empty_result
 
     try:
         # Ensure CRS is set on the DataArray
+        # if da.rio.crs is None:
+        #     da = da.rio.write_crs("EPSG:4326")
+
+        # # Reproject polygon to match DataArray CRS if needed
+        # if polygon.crs is None:
+        #     polygon = polygon.set_crs("EPSG:4326")
+        # elif polygon.crs.to_epsg() != da.rio.crs.to_epsg():
+        #     polygon = polygon.to_crs(da.rio.crs)
+
+        # Ensure CRS is set on the DataArray. The polygon is now a bare shapely
+        # geometry with no CRS attached, so it is assumed to already be in the
+        # DataArray's CRS (EPSG:4326).
         if da.rio.crs is None:
             da = da.rio.write_crs("EPSG:4326")
-
-        # Reproject polygon to match DataArray CRS if needed
-        if polygon.crs is None:
-            polygon = polygon.set_crs("EPSG:4326")
-        elif polygon.crs.to_epsg() != da.rio.crs.to_epsg():
-            polygon = polygon.to_crs(da.rio.crs)
 
         # Get x/y coordinate arrays and resolution
         x_dim = "x" if "x" in da.dims else "lon"
@@ -413,7 +422,8 @@ def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, 
         values_2d = da.values.squeeze()
 
         # Union of all polygon parts into one geometry for intersection
-        poly_union = polygon.geometry.union_all()
+        #poly_union = polygon.geometry.union_all()
+        poly_union = polygon
 
         # Iterate over all cells and compute fractional coverage
         weighted_values_sum = []

@@ -26,9 +26,9 @@ DATASETS = [
     {   "source": "Wang",
         "variable": "GDP",
         "resolution": {
-            "degrees": 1/120,
-            "minutes": 0.5,
-            "seconds": 30
+            "degrees": 0.1,
+            "minutes": 6,
+            "seconds": 360
         }
     },
     {   "source": "Murakami",
@@ -42,10 +42,10 @@ DATASETS = [
     {   "source": "COMPASS",
         "variable": "GDP",
         "resolution": {
-            "degrees": 1/120,
-            "minutes": 0.5,
-            "seconds": 30
-        }
+        "degrees": 0.1,
+        "minutes": 6,
+        "seconds": 360
+    }
     },
     {   "source": "EDGAR",
         "variable": "Emissions",

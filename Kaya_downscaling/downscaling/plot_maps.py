@@ -290,7 +290,7 @@ def plot_IPAT_summary(dir_processed:Path, add_txt:str,
 
         return True
 
-def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, scenario:str, varname:str, year:int):
+def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, add_text:str, varname:str, year:int):
 
     # Create a regular axis for the histogram and a GeoAxes for the map (required by Cartopy)
     fig = plt.figure(figsize=(12, 4))
@@ -302,7 +302,7 @@ def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, scenario:str, var
     p99 = float(data_year.quantile(0.99))
 
     xr_year_plot[varname].sel(time=year).plot.hist(ax=ax_hist, bins=100, color="lightblue", edgecolor="black", range=(min(0, p001), p99))
-    ax_hist.set_title(f"Histogram of CO2 emissions for scenario {scenario} and year {year}")
+    ax_hist.set_title(f"Histogram of CO2 emissions for {add_text} and year {year}")
     ax_hist.set_xlabel("CO2 emissions")
     ax_hist.set_ylabel("Frequency")
 
@@ -312,7 +312,7 @@ def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, scenario:str, var
     ax_map.set_ylabel("Latitude")
 
     varname_save = varname.replace("|", "_").replace(" ", "_")
-    png_file = dir_processed / "figures" / f"hist_map_{varname_save}_{year}.png"
+    png_file = dir_processed / "figures" / f"hist_map_{varname_save}_{year}{add_text}.png"
     plt.savefig(png_file, dpi=300, bbox_inches="tight")
 
 def plot_map(dir_processed:str, da:xr.DataArray, varname:str, add_txt:str, years:list, coarse_factor:int=10):
@@ -404,7 +404,7 @@ def plot_model_region_country_raster(ds_GADM_raster: xr.Dataset, save_file_path:
 
 def plot_boxplot_per_region(project_dir:Path, dir_processed:Path, file_IAM_model_region_numbers:str,
                             xr_data: xr.Dataset, varname:str,
-                            model:str, scenario:str,
+                            profile:str,model:str, scenario:str,
                             years:list):
 
     regions, regions_mapping = process_IAM_data.get_regions(project_dir, model, file_IAM_model_region_numbers)
@@ -453,64 +453,13 @@ def plot_boxplot_per_region(project_dir:Path, dir_processed:Path, file_IAM_model
     fig.suptitle(f"{varname} per grid cell per model region for scenario {scenario}", y=1.02, fontsize=16)
     plt.tight_layout()
 
-    save_file = dir_processed / "figures" / f"boxplot_per_region_{varname.replace('|', '_').replace(' ', '_')}_{model}_{scenario}.png"
+    save_file = dir_processed / "figures" / f"boxplot_per_region_{varname.replace('|', '_').replace(' ', '_')}_{profile}_{model}_{scenario}.png"
     plt.savefig(save_file, dpi=300, bbox_inches="tight")
 
 def plot_urban_emissions_per_region(project_dir:Path, df_urban_emissions:pd.DataFrame):
     # This function can be implemented similarly to plot_boxplot_per_region, but using the percentage_class variable from the emissions_urban_regional_sums dataframe.
     # It would create boxplots of the percentage of emissions in urban areas per region, for each year.
     pass
-
-def plot_comparison_IAM_grid(project_dir:Path, dir_processed:Path, read_processed_emissions:bool,
-                             df_IAM:pd.DataFrame, xr_grid: xr.Dataset, xr_IAM_regions_grid:xr.Dataset, varname: str,
-                             model: str, scenario: str, years_downscaling:list,
-                             file_IAM_model_region_numbers:str):
-
-
-    regions, regions_mapping = process_IAM_data.get_regions(project_dir, model, file_IAM_model_region_numbers)
-    #xr_IAM_regions_grid_downscaling = xr_IAM_regions_grid.reindex_like(xr_grid, method="nearest")
-    #xr_IAM_regions_grid_downscaling = xr_IAM_regions_grid_downscaling.assign_coords(late=xr_grid.y, longitude=xr_grid.x)
-
-    plot_dir = dir_processed / "figures"
-    plot_dir.mkdir(parents=True, exist_ok=True)
-    file_process_emissions_IAM = plot_dir / f"IAM_{model}_{scenario}_emissions_IAM.csv"
-    file_processed_emissions_grid = plot_dir / f"regional_sums_emissions_{model}_{scenario}.nc"
-
-    if read_processed_emissions or not file_process_emissions_IAM.exists():
-        df_emissions, xr_emissions_regional_sums = process_IPAT_factors.calc_urban_regional_emissions(xr_grid, varname, df_IAM, years_downscaling)
-        df_emissions.to_csv(file_process_emissions_IAM, sep=";", index=False)
-        xr_emissions_regional_sums.to_netcdf(file_processed_emissions_grid, mode="w", engine="h5netcdf")
-    else:
-        df_emissions = pd.read_csv(file_process_emissions_IAM, sep=";")
-        xr_emissions_regional_sums = xr.open_dataset(file_processed_emissions_grid)
-
-    varname_IAM = f"{varname}_IAM"
-    varname_grid = f"{varname}_grid_summed"
-    df_emissions_plot = df_emissions[["region_number", "year", varname_grid, varname_IAM]].copy()
-    df_emissions_plot.rename(columns={varname_grid: "value_grid", varname_IAM: "value_IAM"}, inplace=True)
-    # add World
-    df_emissions_plot_World = df_emissions_plot.groupby("year").sum().reset_index()
-    df_emissions_plot_World["region_number"] = 28
-    df_emissions_plot = pd.concat([df_emissions_plot, df_emissions_plot_World], ignore_index=True)
-    df_regions = pd.DataFrame.from_dict(regions_mapping, orient="index").reset_index()
-    df_regions.rename(columns={'index': 'region_number'}, inplace=True)
-    df_regions.columns = ["region_number", "region_name"]
-    df_emissions_plot = pd.merge(df_emissions_plot, df_regions, on="region_number", how="left")
-    df_emissions_plot = df_emissions_plot.melt(id_vars=["region_number", "region_name", "year"], value_vars=["value_grid", "value_IAM"], var_name="variable", value_name="value")
-
-    # plot
-    fig, axs = plt.subplots(nrows=6, ncols=5, figsize=(16, 6))
-    sns.set_theme(style="whitegrid", font_scale=1.5)
-    g = sns.relplot(data=df_emissions_plot, x="year", y="value", col="region_name", hue="variable",  style="variable", col_wrap=4, kind="line", linewidth=2.5, markers={"value_grid": "o", "value_IAM": "s"}, facet_kws={"sharey": False})
-    for ax in g.axes.flat:
-        current_ymin, current_ymax = ax.get_ylim()
-        ax.set_ylim(min(0, current_ymin), current_ymax)
-        ax.set_ylabel("")  # remove individual y-axis labels
-
-    g.fig.supylabel("Emissions", x=0.02)  # single centered label
-
-    save_file = dir_processed / "figures" / f"comparison_IAM_grid_{varname.replace('|', '_').replace(' ', '_')}_{model}_{scenario}.png"
-    plt.savefig(save_file, dpi=300, bbox_inches="tight")
 
 def plot_factors_GDP_POP(project_dir:Path, ds_population:None|xr.Dataset, ds_gdp_ppp:None|xr.Dataset, ds_gdp_per_pop:None|xr.Dataset,
                          year:int=2020, coarsen:int=10):
@@ -569,6 +518,11 @@ def plot_Mercator_projection(da, *, ax=None, coarsen=12, transform="linear", sho
     - cbar_shrink : float, default=0.6 --> scale factor for colorbar length (0.6 = 60% of original size)
     - cbar_aspect : int, default=20 --> ratio of colorbar length to width (higher = thinner)
     - cbar_pad : float, default=0.05 --> Distance between axes and colorbar
+
+    - add_polygon : shapely geometry, optional, default=None --> Single (multi)polygon
+      to outline on the map. Must be in EPSG:4326 (WGS84); it is drawn with
+      crs=ccrs.PlateCarree() and is not reprojected, so a geometry in any other CRS
+      will be misplaced. Pass a shapely Polygon or MultiPolygon, not a GeoDataFrame.
 
     Returns (fig, ax, mappable).
 
@@ -649,12 +603,12 @@ def plot_Mercator_projection(da, *, ax=None, coarsen=12, transform="linear", sho
     gl.right_labels = False
     gl.top_labels = False
 
-        # Draw polygon boundary if provided
+    # Draw polygon boundary if provided
     if add_polygon is not None:
-        if add_polygon.empty:
-            print(f"Warning: polygon GeoDataFrame is empty, skipping polygon drawing.")
+        if add_polygon.is_empty:
+            print(f"Warning: polygon geometry is empty, skipping polygon drawing.")
         else:
-            ax.add_geometries(add_polygon.geometry, crs=ccrs.PlateCarree(), facecolor="none", edgecolor="red", linewidth=1.5, zorder=5)
+            ax.add_geometries([add_polygon], crs=ccrs.PlateCarree(), facecolor="none", edgecolor="red", linewidth=1.5, zorder=5)
 
     if title:
         ax.set_title(title)
