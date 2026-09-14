@@ -240,7 +240,7 @@ def plot_countries_regions(tiff_file:Path, fig_dir:Path) -> None:
                    transform=ccrs.PlateCarree(), cmap=cmap_r, norm=norm_r, interpolation="none")
     axes[1,0].add_feature(cfeature.COASTLINE, linewidth=0.5, edgecolor="black")
     axes[1,0].add_feature(cfeature.BORDERS,   linewidth=0.3, edgecolor="black")
-    axes[1,0].set_title("Band 2 — IMAGE Region Numbers")
+    axes[1,0].set_title("Band 2 — IAM model Region Numbers")
     axes[1,0].set_global()
 
     # oceans in regions
@@ -365,11 +365,11 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     print(f"dir_GADM: {dir_GADM}")
     dir_GADM.mkdir(parents=True, exist_ok=True)
 
-    settings_file = project_dir / "downscaling" / "settings_data_locations.json"
-    with open(settings_file, "r") as f:
-        data_files = json.load(f)
-    data_files = apply_root_json(data_files, data_files["data_root"])
-    data_dir_GADM = data_files["GADM"]["dir_GADM_single"]
+    settings_file_data_locations = project_dir / "downscaling" / "settings_data_locations.json"
+    with open(settings_file_data_locations, "r") as f:
+        data_files_data_locations = json.load(f)
+    data_files_data_locations = apply_root_json(data_files_data_locations, data_files_data_locations["data_root"])
+    data_dir_GADM = data_files_data_locations["GADM"]["dir_GADM_single"]
     data_dir_GADM = Path(data_dir_GADM)
 
     print("Creating GADM raster file for regions...")
@@ -382,7 +382,6 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     if not Path(iso_GADM_raster_file).exists():
         print(f"Reading in GADM raster with resolution {resolution_minutes} arc minutes file for countries: {iso_GADM_raster_file}")
         raster_file, df_iso_to_id, df_id_to_iso = GADM_vector_to_raster(data_dir_GADM, dir_GADM, resolution_degrees = resolution_minutes/60, plot=False)
-        #df_iso_to_id = pd.DataFrame(list(iso_to_id.items()), columns=["ISO", "id"])
     else:
         print(f"GADM raster with resolution {resolution_minutes} arc minutes file already exists at: {iso_GADM_raster_file}, skipping creation.")
         df_iso_to_id = pd.read_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";")
@@ -401,49 +400,49 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
 
     # add country_ID_GADM code from GADM
     df_model_GADM_region_code_number = pd.DataFrame()
-    if model == "IMAGE":
-        country_to_region_file = project_dir / "data" / "input" / "models" / "IMAGE" / "country_to_regions.csv"
-        df_model_coutry_to_region = pd.read_csv(country_to_region_file, sep=";") # ISO3
-        df_model_coutry_to_region.rename(columns={"Country name": "country_name_model"}, inplace=True)
-        df_model_coutry_to_region.loc[df_model_coutry_to_region["ISO3"]=="GRL", "Region code"] = "WEU" # change GRL region code to WEU
-        # correct "HKG" and "MAC" ISO3 codes in GADM
-        df_iso_to_id_IMAGE = df_iso_to_id.copy()
-        new_rows = pd.DataFrame({"id": [None, None],
-                                 "ISO": ["HKG", "MAC"],
-                                 "NAME": ["Hong Kong", "Macau"]})
-        df_iso_to_id_IMAGE = pd.concat([df_iso_to_id_IMAGE, new_rows], ignore_index=True)
-        df_model_GADM_region_code = pd.merge(df_model_coutry_to_region, df_iso_to_id_IMAGE, left_on="ISO3", right_on="ISO", how="outer")
-        df_model_GADM_region_code.rename(columns={"ISO3": "ISO3_model", "ISO": "ISO3_GADM", "NAME": "country_name_GADM"}, inplace=True) # TO DO --> check missing ISO3 codes between model/GADM
 
-        # print missing countries
-        # print ISO3_model codes that are missing in model
-        missing_ISO3_GADM = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_GADM"].isna()][["ISO3_model", "country_name_model", "country_name_GADM"]].drop_duplicates()
-        if len(missing_ISO3_GADM) > 0:
-            print(f"\n{colour_red}Warning: The following ISO3 codes from the model are missing in GADM and will be assigned a region number of 0:{color_end}")
-            print(missing_ISO3_GADM)
-        # print ISO3_GADM codes that are missing in model
-        missing_ISO3_model = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_model"].isna()][["ISO3_GADM", "country_name_model", "country_name_GADM"]].drop_duplicates()
-        if len(missing_ISO3_model) > 0:
-            print(f"\n{colour_yellow}Warning: The following ISO3 codes from GADM are missing in the model and will be ignored:{color_end}")
-            print(missing_ISO3_model)
+    country_to_region_file = project_dir / "data" / "input" / "models" / f"{model}" / f"{model}_country_to_regions.csv"
+    df_model_coutry_to_region = pd.read_csv(country_to_region_file, sep=";") # ISO3
+    df_model_coutry_to_region.rename(columns={"Country name": "country_name_model"}, inplace=True)
+    df_model_coutry_to_region.loc[df_model_coutry_to_region["ISO3"]=="GRL", "Region code"] = "WEU" # change GRL region code to WEU
+    # correct "HKG" and "MAC" ISO3 codes in GADM
+    df_iso_to_id_IAM_model = df_iso_to_id.copy()
+    new_rows = pd.DataFrame({"id": [None, None],
+                                "ISO": ["HKG", "MAC"],
+                                "NAME": ["Hong Kong", "Macau"]})
+    df_iso_to_id_IAM_model = pd.concat([df_iso_to_id_IAM_model, new_rows], ignore_index=True)
+    df_model_GADM_region_code = pd.merge(df_model_coutry_to_region, df_iso_to_id_IAM_model, left_on="ISO3", right_on="ISO", how="outer")
+    df_model_GADM_region_code.rename(columns={"ISO3": "ISO3_model", "ISO": "ISO3_GADM", "NAME": "country_name_GADM"}, inplace=True) # TO DO --> check missing ISO3 codes between model/GADM
 
-        # map to region numbers
-        region_numbers_file = project_dir / "data" / "input" / "models" / "IMAGE" / "image_region_numbers.csv"
-        df_region_numbers = pd.read_csv(region_numbers_file, sep=",")
-        df_model_GADM_region_code_number = pd.merge(df_model_GADM_region_code, df_region_numbers, left_on="Region code", right_on="IMAGE region", how="left")
-        #df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "country_name_GADM", "ISO3_GADM", "ISO3_model"], inplace=True)
-        df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "ISO3_model"], inplace=True)
-        df_model_GADM_region_code_number.rename(columns={"id": "country_id_GADM",  "IMAGE number": "model_region_number"}, inplace=True)
-        df_model_GADM_region_code_number["model_region_number"] = df_model_GADM_region_code_number["model_region_number"].fillna(0).astype(np.int8)
-        # add ocean with region number 0 to mapping
-        ocean_row = pd.DataFrame({"country_id_GADM": [0], "country_name_model": ["Ocean"], "model_region_number": [0]})
-        df_model_GADM_region_code_number = pd.concat([df_model_GADM_region_code_number, ocean_row],ignore_index=True)
-        df_model_GADM_region_code_number.rename(columns={"model_region_number": "region_number"}, inplace=True)
-        df_model_GADM_region_code_number["country_id_GADM"] = (pd.to_numeric(df_model_GADM_region_code_number["country_id_GADM"], errors="coerce")
-                                                                             .fillna(0)
-                                                                             .astype(np.int16))
-        df_model_GADM_region_code_number.rename(columns={"IMAGE_region_number": "region_number"}, inplace=True)
-        df_model_GADM_region_code_number.to_csv(f"{dir_GADM}/IMAGE_GADM_country_to_region_codes.csv", sep=";", index=False)
+    # print missing countries
+    # print ISO3_model codes that are missing in model
+    missing_ISO3_GADM = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_GADM"].isna()][["ISO3_model", "country_name_model", "country_name_GADM"]].drop_duplicates()
+    if len(missing_ISO3_GADM) > 0:
+        print(f"\n{colour_red}Warning: The following ISO3 codes from the model are missing in GADM and will be assigned a region number of 0:{color_end}")
+        print(missing_ISO3_GADM)
+    # print ISO3_GADM codes that are missing in model
+    missing_ISO3_model = df_model_GADM_region_code[df_model_GADM_region_code["ISO3_model"].isna()][["ISO3_GADM", "country_name_model", "country_name_GADM"]].drop_duplicates()
+    if len(missing_ISO3_model) > 0:
+        print(f"\n{colour_yellow}Warning: The following ISO3 codes from GADM are missing in the model and will be ignored:{color_end}")
+        print(missing_ISO3_model)
+
+    # map to region numbers
+    region_numbers_file = project_dir / "data" / "input" / "models" / f"{model}" / f"{model}_region_numbers.csv"
+    df_region_numbers = pd.read_csv(region_numbers_file, sep=";") # assumption: columns "region" and "number"
+    df_model_GADM_region_code_number = pd.merge(df_model_GADM_region_code, df_region_numbers, left_on="Region code", right_on="region", how="left")
+    #df_model_GADM_region_code_number.drop(columns=["Region code", "IMAGE region", "country_name_GADM", "ISO3_GADM", "ISO3_model"], inplace=True)
+    df_model_GADM_region_code_number.drop(columns=["Region code", "region", "ISO3_model"], inplace=True)
+    df_model_GADM_region_code_number.rename(columns={"id": "country_id_GADM",  "number": "model_region_number"}, inplace=True)
+    df_model_GADM_region_code_number["model_region_number"] = df_model_GADM_region_code_number["model_region_number"].fillna(0).astype(np.int8)
+    # add ocean with region number 0 to mapping
+    ocean_row = pd.DataFrame({"country_id_GADM": [0], "country_name_model": ["Ocean"], "model_region_number": [0]})
+    df_model_GADM_region_code_number = pd.concat([df_model_GADM_region_code_number, ocean_row],ignore_index=True)
+    df_model_GADM_region_code_number.rename(columns={"model_region_number": "region_number"}, inplace=True)
+    df_model_GADM_region_code_number["country_id_GADM"] = (pd.to_numeric(df_model_GADM_region_code_number["country_id_GADM"], errors="coerce")
+                                                                            .fillna(0)
+                                                                            .astype(np.int16))
+    df_model_GADM_region_code_number.rename(columns={"number": "region_number"}, inplace=True)
+    df_model_GADM_region_code_number.to_csv(f"{dir_GADM}/{model}_GADM_country_to_region_codes.csv", sep=";", index=False)
 
     print("\nMerging GADM raster with model region numbers...")
     # add region numbers to GADM raster (to save memory, inly the GADM country ID and the region number are kept in the raster)
@@ -456,10 +455,10 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     # save to netcdf and tiff
     print(f"CRS: {ds_GADM_raster.rio.crs}")
     print(f"\nSaving GADM raster to {colour_green}netcdf {color_end}file in {dir_GADM} with region numbers...")
-    ds_GADM_raster.to_netcdf(f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.nc", mode="w", engine="netcdf4")
+    ds_GADM_raster.to_netcdf(f"{dir_GADM}/{model}_GADM_regions_raster_6_00_arcmin.nc", mode="w", engine="netcdf4")
     print(f"\nSaving GADM raster to {colour_yellow}tiff {color_end}file in {dir_GADM} with region numbers...")
     data = np.stack([ds_GADM_raster["country_id_GADM"].values, ds_GADM_raster["region_number"].values])
-    tiff_file = f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.tif"
+    tiff_file = f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}_arcmin.tif"
     with rasterio.open(
         tiff_file,
         "w",
@@ -484,7 +483,7 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     print(f"resolution EM grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees")
 
     # 3. plot and checks
-    dir_input = Path(f"{dir_GADM}/IMAGE_GADM_regions_raster_{res_min_file_end}_arcmin.tif")
+    dir_input = Path(f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}_arcmin.tif")
     dir_fig = Path(f"{dir_GADM}/figures")
     dir_fig.mkdir(parents=True, exist_ok=True)
     #plot_maps.plot_coast_checks(dir_input, dir_fig, f"_{resolution_minutes:.2f}")

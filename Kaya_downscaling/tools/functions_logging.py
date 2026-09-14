@@ -8,6 +8,13 @@ from pathlib import Path
 
 from tools.general_functions import PRINT_COLORS
 
+class SummaryFilter(logging.Filter):
+    """Pass only records flagged for the summary file via
+    logger.info(..., extra={"summary": True})."""
+
+    def filter(self, record):
+        return getattr(record, "summary", False)
+
 class CallerFilter(logging.Filter):
     """Attach %(caller)s: the function that called the function which
     emitted the log record."""
@@ -110,7 +117,7 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     console_handler.setFormatter(debug_formatter)
 
     # Error/warning log file (captures WARNING and above)
-    error_file = log_path / f"log_errors_warning_{log_prefix}_{timestamp}.log"
+    error_file = log_path / f"log_errors_warning_error_{log_prefix}_{timestamp}.log"
     error_handler = logging.FileHandler(error_file)
     error_handler.setLevel(logging.WARNING)
     error_formatter = logging.Formatter(
@@ -139,6 +146,17 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     warnings_logger.addHandler(console_handler)
     warnings_logger.propagate = False
 
+    # Summary file: only receives records explicitly tagged with extra={"summary": True}
+    summary_file = log_path / f"log_summary_{log_prefix}_{timestamp}.log"
+    summary_handler = logging.FileHandler(summary_file)
+    summary_handler.setLevel(logging.INFO)
+    summary_handler.setFormatter(results_formatter)
+    summary_handler.addFilter(SummaryFilter())
+
+    # Attach to both loggers so the tag works regardless of which one you call
+    debug_logger.addHandler(summary_handler)
+    results_logger.addHandler(summary_handler)
+
     # Add handlers to loggers
     debug_logger.addHandler(debug_handler)
     debug_logger.addHandler(console_handler)
@@ -154,7 +172,7 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     debug_logger.propagate = False
     results_logger.propagate = False
 
-        # Route uncaught exceptions (tracebacks) into the logs instead of bare stderr,
+    # Route uncaught exceptions (tracebacks) into the logs instead of bare stderr,
     # so the full error is recorded when the run stops
     def handle_uncaught(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):

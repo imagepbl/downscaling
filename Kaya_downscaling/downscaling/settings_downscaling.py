@@ -81,14 +81,13 @@ check_flags = {
     "check_POP_data": False,
     "check_GDP_data": False,
     "check_EM_data": False,
-    "check_GDP_POP": True,
+    "check_GDP_POP": False,
     "check_IAM_data": False,
     "check_IAM_grid_data": False,
     "check_grid_GDP_per_pop": False,
     "check_IAM_GDP_per_pop": False,
     "check_SE_correction_factors": False,
     "check_SE_harmonised": False,
-    "check_emissions": False,
 }
 
 # ---------------------------------------------------------------------------

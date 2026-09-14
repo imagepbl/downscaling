@@ -62,7 +62,7 @@ def combine_emissions_output(folder: Path) -> pd.DataFrame:
 
     return combined
 
-def run_aggregration_to_urban(SSP_base: str = "SSP2", rounds: dict[str, str] | None = None):
+def run_aggregration_to_urban(model: str, scenario: str, SSP_base: str = "SSP2", rounds: dict[str, str] | None = None):
     '''
     Run aggregation of emissions to urban level.
     Rounds: directories as produced by downscale_emissions in downscaling.py
@@ -93,7 +93,7 @@ def run_aggregration_to_urban(SSP_base: str = "SSP2", rounds: dict[str, str] | N
             # read in grid emissions
             varname_EM = "Emissions_CO2_Excl_shipping_aviation_AFOLU"
             file_EM = f"Emissions_CO2_Excl_shipping_aviation_AFOLU_harmonised_{SSP_base}.nc"
-            scenario_EM = "IMAGE_ELV-SSP2-CP"
+            scenario_EM = f"{model}_{scenario}"
             dir_processed = project_dir / Path("data/processed")
             path_EM = dir_processed / r[1] / scenario_EM / file_EM
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     python run main.py --process_grid_data --profile second_round --ssp_baseline SSP2
 
     -Create GADM raster for countries
-    python run main.py --create_GADM_raster --resolution 6.00
+    python run main.py --create_GADM_raster --model IMAGE --resolution 6.00
 
     -Compare to raster files
     pixi run python main.py --compare
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     -Plot results
     python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
     python run main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net --global_min 0 --global_max 100
-7
+
     -Upload results to Google Earth Engine
     python run main.py --upload --scenario ELV-SSP2-CP --model IMAGE --profile %profile%
 
@@ -171,9 +171,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Downscaling emissions to grid level") # add_help=True by default
     #parser.add_argument("--process_grid_data", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
-    parser.add_argument("--process_grid_data", action="store_true", help="process datasets")
+    parser.add_argument("--process_grid_data_profile", action="store_true", help="process datasets based on profile")
+    parser.add_argument("--process_grid_data_source", action="store_true", help="process datasets based on source")
     parser.add_argument("--process_urban_classification", action="store_true", help="process urban classification data")
     parser.add_argument("--ssp_baseline", type=str, help="baseline scenario from SSP")
+    parser.add_argument("--driver", type=str, help="driver for the data (Population, GDP_PPP, Emissions)")
+    parser.add_argument("--source", type=str, help="data source (e.g. 2UP, Murakami, EDGAR)")
+    parser.add_argument("--version", type=str, help="data version (e.g. version_7, version_2021_1, 2025_04_18)")
 
     parser.add_argument("--create_GADM_raster", action="store_true", help="create GADM raster file for countries")
     parser.add_argument("--resolution", type=str, help="Resolution for GADM raster in minutes")
@@ -203,16 +207,24 @@ if __name__ == "__main__":
     # 1. Population, GDP and emissions datasets
     # 2. Create GADM raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
     # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
-    if hasattr(arguments, 'process_grid_data') and arguments.process_grid_data is True:
+    if hasattr(arguments, 'process_grid_data_profile') and arguments.process_grid_data_profile is True:
         if arguments.profile is None or arguments.ssp_baseline is None :
-            parser.error("--processing requires a profile and a SSP baseline scenario to be specified with --ssp_base")
-        # 1, Pre-process population, GDP and emissions datasets
+            parser.error("--process_grid_data_profile requires a profile and a SSP baseline scenario to be specified with --ssp_base")
+        # 1. Pre-process population, GDP and emissions datasets
         downscaling.process_datasets(project_dir, arguments.profile, arguments.ssp_baseline)
+    if hasattr(arguments, "process_grid_data_source") and arguments.process_grid_data_source is True:
+        if arguments.source is None or arguments.driver is None or arguments.version is None:
+            parser.error("--process_grid_data_source requires a source, driver (Population, GDP|PPP, Emissions), and version to be specified")
+        if arguments.driver != "Emissions" and arguments.ssp_baseline is None:
+            parser.error("--process_grid_data_source with driver Population or GDP|PPP requires a SSP baseline scenario to be specified with --ssp_base")
+        # 1. Pre-process population, GDP and emissions datasets
+        downscaling.process_one_dataset(project_dir, arguments.driver.replace("_", "|"), arguments.source, arguments.version, arguments.ssp_baseline)
+
     # 2. Create raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
     if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
-        if arguments.resolution is None:
-            parser.error("--Creating GADM raster requires a resolution to be specified with --resolution")
-        IAM_maps.create_GADM_region_raster(project_dir, "IMAGE", float(arguments.resolution), True)
+        if arguments.model is None or arguments.resolution is None:
+            parser.error("--Creating GADM raster requires a model and a resolution to be specified with --model and --resolution")
+        IAM_maps.create_GADM_region_raster(project_dir, arguments.model, float(arguments.resolution), True)
     # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
     if hasattr(arguments, 'process_urban_classification') and arguments.process_urban_classification is True:
         process_urban_grid_emissions.process_urban_classification_data(Path(project_dir))
@@ -239,8 +251,14 @@ if __name__ == "__main__":
 
     # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:
-        if arguments.scenario is None or arguments.profile is None:
-            parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
+        if arguments.model is None or arguments.scenario is None or arguments.profile is None:
+            if arguments.model is None:
+                parser.error("--model requires a model to be specified")
+            if arguments.scenario is None:
+                parser.error("--scenario requires a scenario to be specified")
+            if arguments.profile is None:
+                parser.error("--profile requires a profile to be specified")
+            parser.error("--model requires a model to be specified and/or --scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
         if arguments.emissions not in ["net", "gross"]:
             parser.error("--emissions requires a value of 'net' or 'gross'")
         elif arguments.emissions == "net":
@@ -248,24 +266,25 @@ if __name__ == "__main__":
         else:
             net_emissions = False
         if arguments.global_min is None or arguments.global_max is None:
-            downscaling.plot_results(arguments.scenario, "IMAGE", arguments.profile, net_emissions, None, None)
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, net_emissions, None, None)
         else:
-            downscaling.plot_results(arguments.scenario, "IMAGE", arguments.profile, net_emissions, float(arguments.global_min), float(arguments.global_max))
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, net_emissions, float(arguments.global_min), float(arguments.global_max))
     # TOOLS
     # upload results to Google Earth Engine
     if hasattr(arguments, 'upload') and arguments.upload is True:
-        if arguments.scenario is None or arguments.profile is None:
-            parser.error("--upload requires a scenario to be specified and/or --profile requires a profile to be specified")
-        downscaling.upload_to_GEE(arguments.scenario, "IMAGE", arguments.profile)
+        if arguments.model is None or arguments.scenario is None or arguments.profile is None:
+            parser.error("--upload requires a --model <model>, --scenario <scenario>, and --profile <profile> to be specified")
+        downscaling.upload_to_GEE(arguments.scenario, arguments.model, arguments.profile)
     # compare two raster files
     if hasattr(arguments, 'compare') and arguments.compare is True:
         downscaling.compare_two_raster_files()
     # run urban aggregation
     if hasattr(arguments, 'run_urban_aggregation') and arguments.run_urban_aggregation is True:
-        run_aggregration_to_urban("SSP2", rounds)
+        run_aggregration_to_urban(model=arguments.model, scenario="ELV-SSP2-CP", SSP_base="SSP2", rounds=rounds)
         combine_emissions_output(project_dir / "data" / "output")
 
     # if no arguments, print message
     if not any(vars(arguments).values()):
         print("No arguments provided. Use -h or --help for more information.")
+
 

@@ -112,7 +112,6 @@ def compare_IAM_grid_regions_GDP_per_capita(ds:xr.Dataset, ds_varname:str,
     Compare the regional difference between IAM and grid data for GDP per capita
     '''
     df_grid_regional = sum_grid_to_IAM_regions(ds[ds_varname], ds_weight[ds_weight_varname], xr_IAM_regions_grid)
-    #df_grid_gdp_ppp_per_population_regional["region_code"] = df_grid_gdp_ppp_per_population_regional["region_number"].map(convert_IMAGE_regions_to_names)
     df_grid_regional = df_grid_regional[df_grid_regional["region_number"]>0]
     df_grid_regional = df_grid_regional.sort_values(by=["year", "region_number"])
     # select
@@ -138,7 +137,7 @@ def compare_IAM_grid_regions_GDP_per_capita(ds:xr.Dataset, ds_varname:str,
     df_grid_gdp_ppp_per_population_regional_check["value"] /= 1e3  # convert to million unit
 
     df_gdp_ppp_per_population_regional_check = pd.merge(df_IAM_projection_gdp_ppp_per_population_check, df_grid_gdp_ppp_per_population_regional_check, on=["region_number", "year"], suffixes=("_IAM", "_grid_sum"))
-    df_gdp_ppp_per_population_regional_check["diff_perc"] = 100*df_gdp_ppp_per_population_regional_check["value_grid_sum"]/df_gdp_ppp_per_population_regional_check["value_IAM"]
+    df_gdp_ppp_per_population_regional_check["diff_perc"] = 100*(df_gdp_ppp_per_population_regional_check["value_grid_sum"]/df_gdp_ppp_per_population_regional_check["value_IAM"]-1)
     df_gdp_ppp_per_population_regional_check = df_gdp_ppp_per_population_regional_check[df_gdp_ppp_per_population_regional_check["year"].isin(selection_years)]
     df_gdp_ppp_per_population_regional_check = df_gdp_ppp_per_population_regional_check.pivot(index=["region_number"], columns="year", values=["value_IAM", "value_grid_sum", "diff_perc"])
     # Create a formatted copy
@@ -412,7 +411,6 @@ def calc_scaling_factors_EM_per_GDP(xr_IAM_regions_grid_downscaling:xr.Dataset,
     # Calculate initial scaling factor for each grid cell (2020)
     # scaling_factor_by = CO2perGDP_grid(by) / CO2perGDP_region_IAM(by)
     np_scaling_factor_by = np.full((len(y_coords), len(x_coords)), np.nan)
-    #convert = one_unit_IMAGE_GDP_PPP / one_unit_IMAGE_em
     for region_number in region_numbers:
         region_mask_xr = (xr_IAM_regions_grid_downscaling["region_number"].values == region_number)
 

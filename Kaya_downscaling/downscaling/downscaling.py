@@ -67,6 +67,52 @@ def cleanup_empty_logs(log_path):
             print(f"Deleting empty log file: {log_file}")
             log_file.unlink()
 
+def process_one_dataset(project_dir:Path, driver:str="Population", source:str="2UP", version:str="GHSL_2024_M3", SSP_base:str="SSP2"):
+    # driver = "Population", "GDP|PPP", "Emissions"
+    log_path = f"{project_dir}/log/reading_processing_data"
+    debug_log, results_log = init_logging(f"read_process_data_{driver.replace("|", "_")}_{source}_{version}_{SSP_base}", log_path)
+
+    if driver not in ["Population", "GDP|PPP", "Emissions"]:
+        raise ValueError(f"Unknown type '{driver}'. Supported types: 'Population', 'GDP|PPP', 'Emissions_CO2_Excl_shipping_aviation_AFOLU'.")
+
+    # set variable naems
+    match driver:
+        case "Population":
+            varname = settings.varname_POP
+        case "GDP|PPP":
+            varname = settings.varname_GDP
+        case "Emissions":
+            varname = settings.varname_EM
+        case _:
+            raise ValueError(f"Unknown type '{driver}'. Supported types: 'Population', 'GDP|PPP', 'Emissions_CO2_Excl_shipping_aviation_AFOLU'.")
+
+    debug_log.info(f"{PRINT_COLORS["green"]}Data sources to process for type: {driver}, source: {source}, version: {version}, and SSP baseline {SSP_base}{PRINT_COLORS["end"]}")
+
+    debug_log.info("-----------------------------")
+    debug_log.info("Processing datasets...")
+
+    debug_log.info(f"{PRINT_COLORS["yellow"]}-----------------------------{PRINT_COLORS["end"]}")
+
+
+    if driver in ["Population", "GDP|PPP"]:
+        debug_log.info(f"{PRINT_COLORS["yellow"]}Processing data for variable: {varname}, source: {source}, version: {version}, and SSP baseline: {SSP_base}{PRINT_COLORS["end"]}")
+        if driver in ["Population", "GDP|PPP"]:
+            process_grid_data.pre_process_data_socioeconomic(varname=varname,
+                                                                source=source,
+                                                                version=version,
+                                                                SSP_base=SSP_base,
+                                                                base_year=settings.base_year,
+                                                                log=debug_log)
+    elif driver == "Emissions":
+        process_grid_data.pre_process_data_emissions(varname=varname,
+                                                     source=source,
+                                                     version=version,
+                                                     log=debug_log)
+    else:
+        debug_log.info(f"{PRINT_COLORS["red"]}Variable {varname} not recognized for processing.{PRINT_COLORS["end"]}")
+
+    cleanup_empty_logs(log_path)
+
 def process_datasets(project_dir:Path, profile:str, SSP_base="SSP2"):
 
     log_path = f"{project_dir}/log/reading_processing_data"
@@ -91,26 +137,6 @@ def process_datasets(project_dir:Path, profile:str, SSP_base="SSP2"):
     source_EM = sources["source_EM"]
     version_EM = sources["version_EM"]
 
-    # settings
-    #SSP_base="SSP2"
-
-    # data_sources = [
-    #     #{"varname": "Population", "source": "2UP", "version": "GHSL_2024_M1"},
-    #     #{"varname": "Population", "source": "2UP", "version": "GHSL_2024_M3"},
-    #     #{"varname": "Population", "source": "2UP", "version": "M1"},
-    #     #{"varname": "Population", "source": "2UP", "version": "M3"},
-    #     #{"varname": "Population", "source": "Wang", "version": "version_2"},
-    #     #{"varname": "Population", "source": "Wang", "version": "version_3"},
-    #     #{"varname": "Population", "source": "Zhuang", "version": "version_1"},
-    #     {"varname": "Population", "source": "COMPASS", "version": "version_2"},
-    #     #{"varname": "Population", "source": "Murakami", "version": "version_3"},
-    #     #{"varname": "GDP|PPP", "source": "Wang", "version": "version_7"},
-    #     #{"varname": "GDP|PPP", "source": "Murakami", "version": "version_2021_1"},
-    #     {"varname": "GDP|PPP", "source": "COMPASS", "version": "version_2"},
-    #     #{"varname": "Emissions_CO2_Excl_shipping_aviation_AFOLU", "source": "EDGAR", "version": "2024"}
-    #     {"varname": "Emissions_CO2_Excl_shipping_aviation_AFOLU", "source": "CEDS_CMIP7", "version": "2025_04_18"}
-    # ]
-
     data_source_population = {"varname": varname_POP, "source": source_POP, "version": version_POP}
     data_source_gdp_ppp = {"varname": varname_GDP, "source": source_GDP, "version": version_GDP}
     data_source_emissions = {"varname": varname_EM, "source": source_EM, "version": version_EM}
@@ -126,19 +152,18 @@ def process_datasets(project_dir:Path, profile:str, SSP_base="SSP2"):
 
     for data_source in data_sources:
         debug_log.info(data_source)
-        debug_log.info(f"{PRINT_COLORS["yellow"]}Processing data for variable: {data_source["varname"]}, source: {data_source["source"]}, version: {data_source["version"]}{PRINT_COLORS["end"]}")
+        debug_log.info(f"{PRINT_COLORS["yellow"]}Processing data for variable: {data_source["varname"]}, source: {data_source["source"]}, version: {data_source["version"]}, and SSP baseline: {SSP_base}{PRINT_COLORS["end"]}")
         if data_source["varname"] in ["Population", "GDP|PPP"]:
             process_grid_data.pre_process_data_socioeconomic(varname=data_source["varname"],
                                         source=data_source["source"],
                                         version=data_source["version"],
                                         SSP_base=SSP_base,
-                                        copy=True,
+                                        base_year=settings.base_year,
                                         log=debug_log)
         elif data_source["varname"] == "Emissions_CO2_Excl_shipping_aviation_AFOLU":
             process_grid_data.pre_process_data_emissions(varname=data_source["varname"],
                                         source=data_source["source"],
                                         version=data_source["version"],
-                                        copy=True,
                                         log=debug_log)
         else:
             debug_log.info(f"{PRINT_COLORS["red"]}Variable {data_source["varname"]} not recognized for processing.{PRINT_COLORS["end"]}")
@@ -189,6 +214,37 @@ def reindex_and_interp(group:pd.DataFrame, id_cols:list[str], years_downscaling:
             .assign(**keys)
             .assign(value=lambda g: g["value"].interpolate("linear", limit_area="inside"))
             .reset_index())
+
+from pathlib import Path
+import numpy as np
+import xarray as xr
+import matplotlib.pyplot as plt
+
+def plot_floor_comparison(da, title, floor=1e3, n_bins=60, save_path=None):
+    """Two log-scale histograms of one 2D slice: left as-is, right with values <= floor removed.
+    Pass e.g. xr_gdp_ppp_processed[varname_GDP].sel(time=base_year)."""
+    values = np.asarray(da.squeeze().values, dtype="float64").ravel()
+    pos = values[np.isfinite(values) & (values > 0)]
+    floored = pos[pos > floor]
+
+    bins = np.logspace(np.log10(pos.min()), np.log10(pos.max()), n_bins)
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+    ax_left.hist(pos, bins=bins, color="#4c72b0")
+    ax_left.axvline(floor, color="red", linestyle="--", label=f"floor = {floor:g}")
+    ax_left.set_title(f"{title}: no floor ({pos.size:,} cells)")
+    ax_left.legend()
+    ax_right.hist(floored, bins=bins, color="#55a868")
+    ax_right.axvline(floor, color="red", linestyle="--")
+    ax_right.set_title(f"{title}: floor applied ({floored.size:,} cells)")
+    for ax in (ax_left, ax_right):
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("value per cell")
+    ax_left.set_ylabel("number of cells")
+    fig.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.show()
 
 def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: str = "IMAGE", align_resolution: bool = True, profile: str = "default"):
     """Downscale socio-economic (population or GDP) gridded data to match IAM regional projections."""
@@ -662,12 +718,6 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
         file_path = dir_processed / f"IAM_{model}_{scenario}_processed.csv"
         df_IAM = pd.read_csv(file_path, sep=";")
 
-    # TO DO --> reindex population, GDP, and emissions with xr_IAM_regions_grid to ensure alignment with the grid, especially if the grid has been modified or reprojected.
-    # Now reprojections (for GDP) givea a small error of 0.67%
-    #       CHECK: regions_grid needs to have a similar or higher resolution.
-    # tolerance = max(new_res_x, new_res_y) / 2
-    # xr_IAM_regions_coarse = xr_IAM_regions_grid.reindex_like(da_coarsened, method="nearest", tolerance=tolerance)
-
     # 1.3 read POP data
     debug_log.info(f"\n\n1.3. Read POP data {"-"*25}")
     df_population = None
@@ -930,10 +980,10 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     df_IAM_EM = process_IAM_data.process_EM_regions_data(df_IAM, years_downscaling, varname_EM, vars_downscaling, net_emissions, model, debug_log)
     df_IAM_EM.to_csv(dir_processed / f"IAM_{model}_{scenario}_emissions_processed.csv", index=False, sep=";")
 
-    one_unit_IMAGE_GDP_PPP = process_IAM_data.model_unit_conversions[model]["GDP|PPP"]
-    one_unit_IMAGE_em = process_IAM_data.model_unit_conversions[model]["Emissions|CO2"]
-    df_IAM_GDP = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_GDP, one_unit_IMAGE_GDP_PPP, convergence_year, method_extension, debug_log)
-    df_IAM_EM = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_EM, one_unit_IMAGE_em, convergence_year, method_extension, debug_log)
+    one_unit_IAM_model_GDP_PPP = process_IAM_data.model_unit_conversions[model]["GDP|PPP"]
+    one_unit_IAM_model_em = process_IAM_data.model_unit_conversions[model]["Emissions|CO2"]
+    df_IAM_GDP = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_GDP, one_unit_IAM_model_GDP_PPP, convergence_year, method_extension, debug_log)
+    df_IAM_EM = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_EM, one_unit_IAM_model_em, convergence_year, method_extension, debug_log)
     csv_file_GDP = dir_processed / f"IAM_{model}_{scenario}_gdp_ppp_downscaling_extended.csv"
     csv_file_EM = dir_processed / f"IAM_{model}_{scenario}_em_downscaling_extended.csv"
     df_IAM_GDP.to_csv(csv_file_GDP, index=False, sep=";")
@@ -977,7 +1027,10 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     debug_log.info(f"resolution region grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
 
     # calculate CO2/GDP (PPP) for base year
+    gdp_floor = 1
     xr_em_per_gdp_ppp_by_downscaling = xr_em_by[varname_EM] / xr_gdp_ppp_by[varname_GDP].where(xr_gdp_ppp_by[varname_GDP] != 0)  # Avoid division by zero
+    plot_floor_comparison(xr_em_per_gdp_ppp_by_downscaling, f"{source_GDP}: GDP (PPP) {base_year}", gdp_floor, save_path=dir_processed / "figures" / f"plot_em_per_gdp_ppp_{base_year}.png")
+    xr_em_per_gdp_ppp_by_downscaling = xr_em_per_gdp_ppp_by_downscaling.where(xr_gdp_ppp_by[varname_GDP] >= gdp_floor, other=0) # avoid division by very small GDP values
 
     debug_log.info(xr_em_by[varname_EM].attrs["unit"])
     debug_log.info(xr_gdp_ppp_by[varname_GDP].attrs["unit"])
@@ -1001,10 +1054,10 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
         years_downscaling_extended = sorted(list(set(years_downscaling + [convergence_year])))
         debug_log.info("Downscaling emissions per GDP (PPP) for years after base year...")
         xr_em_per_gdp_ppp =  process_IPAT_factors.downscale_em_per_gdp(xr_scaling_factor_by, varname_em_per_gdp_ppp,
-                                                                        xr_IAM_regions_grid_downscaling,
-                                                                        df_IAM_projection_em_per_gdp_ppp,
-                                                                        years_downscaling_extended, base_year, convergence_year,
-                                                                        regions, x_coords, y_coords)
+                                                                       xr_IAM_regions_grid_downscaling,
+                                                                       df_IAM_projection_em_per_gdp_ppp,
+                                                                       years_downscaling_extended, base_year, convergence_year,
+                                                                       regions, x_coords, y_coords)
         xr_em_per_gdp_ppp.to_netcdf(em_per_gdp_ppp_file, mode="w", engine="netcdf4")
         if process_flags["save_tiffs_intermediate"]:
             plot_maps.save_to_grid_tiff(dir_processed, xr_em_per_gdp_ppp, varname_em_per_gdp_ppp, "", [2020, 2030, 2050], model, scenario)
@@ -1231,87 +1284,50 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
         debug_log.info(f"\n\n(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net}: {PRINT_COLORS["green"]}Urban emissions already calculated. Skipping...{PRINT_COLORS["end"]}")
 
     # Checks
-    # print 2020 and 2030 global values for population, GDP, and emissions
-    if xr_population is not None:
-        debug_log.info(f"Unique years for population variable: {xr_population['time'].values}")
-        pop_2020 = float(xr_population[varname_POP].sel(time=2020).sum())
-        pop_2030 = float(xr_population[varname_POP].sel(time=2030).sum())
-        pop_2050 = float(xr_population[varname_POP].sel(time=2050).sum())
-    else:
-        pop_2020 = None
-        pop_2030 = None
-        pop_2050 = None
-    if xr_gdp_ppp is not None:
-        debug_log.info(f"Unique years for GDP (PPP) variable: {xr_gdp_ppp['time'].values}")
-        gdp_2020 = float(xr_gdp_ppp[varname_GDP].sel(time=2020).sum())
-        gdp_2030 = float(xr_gdp_ppp[varname_GDP].sel(time=2030).sum())
-        gdp_2050 = float(xr_gdp_ppp[varname_GDP].sel(time=2050).sum())
-    else:
-        gdp_2020 = None
-        gdp_2030 = None
-        gdp_2050 = None
-    em_2020 = float(xr_emissions[varname_EM].sel(time=2020).sum())
-    em_2030 = None
-    em_2050 = None
-    pop_processed_2020 = float(xr_population_processed[varname_POP].sel(time=2020).sum())
-    pop_processed_2030 = float(xr_population_processed[varname_POP].sel(time=2030).sum())
-    pop_processed_2050 = float(xr_population_processed[varname_POP].sel(time=2050).sum())
-    if xr_gdp_ppp_processed is not None:
-        gdp_processed_2020 = float(xr_gdp_ppp_processed[varname_GDP].sel(time=2020).sum())
-        gdp_processed_2030 = float(xr_gdp_ppp_processed[varname_GDP].sel(time=2030).sum())
-        gdp_processed_2050 = float(xr_gdp_ppp_processed[varname_GDP].sel(time=2050).sum())
-    else:
-        gdp_processed_2020 = None
-        gdp_processed_2030 = None
-        gdp_processed_2050 = None
-    em_unharm_2020 = float(xr_emissions_unharmonised[varname_EM].sel(time=2020).sum())
-    em_unharm_2030 = float(xr_emissions_unharmonised[varname_EM].sel(time=2030).sum())
-    em_unharm_2050 = float(xr_emissions_unharmonised[varname_EM].sel(time=2050).sum())
-    em_harm_2020 = float(xr_emissions_harmonised[varname_EM].sel(time=2020).sum())
-    em_harm_2030 = float(xr_emissions_harmonised[varname_EM].sel(time=2030).sum())
-    em_harm_2050 = float(xr_emissions_harmonised[varname_EM].sel(time=2050).sum())
-    ds_urban_unharm_2020 = xr_em_urban_unharmonised.sel(time=2020)
-    em_urban_unharm_2020 = float(ds_urban_unharm_2020[varname_EM]
-                                 .where(ds_urban_unharm_2020["urban"]==1)
-                                 .sum())
-    ds_urban_unharm_2030 = xr_em_urban_unharmonised.sel(time=2030)
-    em_urban_unharm_2030 = float(ds_urban_unharm_2030[varname_EM]
-                                 .where(ds_urban_unharm_2030["urban"]==1)
-                                 .sum())
-    ds_urban_unharm_2050 = xr_em_urban_unharmonised.sel(time=2050)
-    em_urban_unharm_2050 = float(ds_urban_unharm_2050[varname_EM]
-                                 .where(ds_urban_unharm_2050["urban"]==1)
-                                 .sum())
-    ds_urban_harm_2020 = xr_em_urban_harmonised.sel(time=2020)
-    em_urban_harm_2020 = float(ds_urban_harm_2020[varname_EM]
-                               .where(ds_urban_harm_2020["urban"]==1)
-                               .sum())
-    ds_urban_harm_2030 = xr_em_urban_harmonised.sel(time=2030)
-    em_urban_harm_2030 = float(ds_urban_harm_2030[varname_EM]
-                               .where(ds_urban_harm_2030["urban"]==1)
-                               .sum())
-    ds_urban_harm_2050 = xr_em_urban_harmonised.sel(time=2050)
-    em_urban_harm_2050 = float(ds_urban_harm_2050[varname_EM]
-                               .where(ds_urban_harm_2050["urban"]==1)
-                               .sum())
-    percent_urban_emissions_unharm_2020 = em_urban_unharm_2020 / em_unharm_2020 * 100 if em_unharm_2020 != 0 else None
-    percent_urban_emissions_unharm_2030 = em_urban_unharm_2030 / em_unharm_2030 * 100 if em_unharm_2030 != 0 else None
-    percent_urban_emissions_unharm_2050 = em_urban_unharm_2050 / em_unharm_2050 * 100 if em_unharm_2050 != 0 else None
-    percent_urban_emissions_harm_2020 = em_urban_harm_2020 / em_harm_2020 * 100 if em_harm_2020 != 0 else None
-    percent_urban_emissions_harm_2030 = em_urban_harm_2030 / em_harm_2030 * 100 if em_harm_2030 != 0 else None
-    percent_urban_emissions_harm_2050 = em_urban_harm_2050 / em_harm_2050 * 100 if em_harm_2050 != 0 else None
+    # print global year values for population, GDP, and emissions
+    years = [base_year, 2030, 2040, 2050]
+    for label, ds in [("population", xr_population), ("GDP (PPP)", xr_gdp_ppp)]:
+        if ds is not None:
+            debug_log.info(f"Unique years for {label} variable: {ds['time'].values}")
 
-    # add 2020, 2030, and 2050 variables to dataframe for comparison
-    df_comparison = pd.DataFrame({
-        "variable": [varname_POP, varname_GDP, varname_EM,
-                     f"{varname_POP}_processed", f"{varname_GDP}_processed",
-                     f"{varname_EM}_unharmonised", f"{varname_EM}_harmonised",
-                     f"{varname_EM}_urban_unharmonised", f"{varname_EM}_urban_harmonised",
-                     "percent_urban_emissions_unharmonised", "percent_urban_emissions_harmonised"],
-        "2020": [pop_2020, gdp_2020, em_2020, pop_processed_2020, gdp_processed_2020, em_unharm_2020, em_harm_2020, em_urban_unharm_2020, em_urban_harm_2020, percent_urban_emissions_unharm_2020, percent_urban_emissions_harm_2020],
-        "2030": [pop_2030, gdp_2030, em_2030, pop_processed_2030, gdp_processed_2030, em_unharm_2030, em_harm_2030, em_urban_unharm_2030, em_urban_harm_2030, percent_urban_emissions_unharm_2030, percent_urban_emissions_harm_2030],
-        "2050": [pop_2050, gdp_2050, em_2050, pop_processed_2050, gdp_processed_2050, em_unharm_2050, em_harm_2050, em_urban_unharm_2050, em_urban_harm_2050, percent_urban_emissions_unharm_2050, percent_urban_emissions_harm_2050]
-    })
+    sum_rows = [(varname_POP, xr_population, varname_POP),
+                (varname_GDP, xr_gdp_ppp, varname_GDP),
+                (varname_EM, xr_emissions, varname_EM),
+                (f"{varname_POP}_processed", xr_population_processed, varname_POP),
+                (f"{varname_GDP}_processed", xr_gdp_ppp_processed, varname_GDP),
+                (f"{varname_EM}_unharmonised", xr_emissions_unharmonised, varname_EM),
+                (f"{varname_EM}_harmonised", xr_emissions_harmonised, varname_EM)]
+
+    urban_rows = [(f"{varname_EM}_urban_unharmonised", xr_em_urban_unharmonised, varname_EM),
+                (f"{varname_EM}_urban_harmonised", xr_em_urban_harmonised, varname_EM)]
+
+    values = {label: {year: (float(ds[varname].sel(time=year).sum())
+                            if ds is not None and year in ds["time"].values else None)
+                    for year in years}
+            for label, ds, varname in sum_rows}
+
+    values.update({label: {year: (float(ds.sel(time=year)[varname].where(ds.sel(time=year)["urban"] == 1).sum())
+                                if ds is not None and year in ds["time"].values else None)
+                        for year in years}
+                for label, ds, varname in urban_rows})
+
+    values["percent_urban_emissions_unharmonised"] = {
+        year: (values[f"{varname_EM}_urban_unharmonised"][year] / values[f"{varname_EM}_unharmonised"][year] * 100
+               if values[f"{varname_EM}_urban_unharmonised"][year] is not None and values[f"{varname_EM}_unharmonised"][year]
+               else None)
+        for year in years}
+
+    values["percent_urban_emissions_harmonised"] = {
+        year: (values[f"{varname_EM}_urban_harmonised"][year] / values[f"{varname_EM}_harmonised"][year] * 100
+               if values[f"{varname_EM}_urban_harmonised"][year] is not None and values[f"{varname_EM}_harmonised"][year]
+               else None)
+        for year in years}
+
+    row_order = ([label for label, _, _ in sum_rows] + [label for label, _, _ in urban_rows]
+                + ["percent_urban_emissions_unharmonised", "percent_urban_emissions_harmonised"])
+
+    df_comparison = pd.DataFrame({"variable": row_order,
+                                **{str(year): [values[label][year] for label in row_order] for year in years}})
 
     summary_table = tabulate(df_comparison, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.0f", intfmt="")
     debug_log.info(f"{PRINT_COLORS['green']}Summary of population, GDP, and emissions for {profile}-{model}-{scenario}{PRINT_COLORS['end']}\n")
@@ -1605,51 +1621,6 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
 
     fig.tight_layout()
     plt.savefig(Path(f"{figures_dir}/city_emissions_{profile}_{model}_{scenario}.png"), dpi=150, bbox_inches="tight")
-
-    # 5. Plot urban and rural emissions for each region and year
-    # TO DO --> does not work yet
-    plot_results_urban_emissions(model, scenario, profile)
-
-def plot_results_urban_emissions(model: str, scenario: str, profile: str|None = None):
-
-    project_dir = Path(__file__).parent
-    print(f"Project directory: {project_dir}")
-
-    # script settings
-    import downscaling.settings_downscaling as settings
-    from downscaling.settings_downscaling import SOURCE_PROFILES
-
-    if profile is None:
-        profiles = list(SOURCE_PROFILES.keys())
-    else:
-        profiles = [profile]
-    df_urban_emissions = pd.DataFrame()
-    for profile in profiles:
-        sources = settings.SOURCE_PROFILES[profile]
-        source_POP = sources["source_POP"]
-        version_POP = sources["version_POP"]
-        source_GDP = sources["source_GDP"]
-        version_GDP = sources["version_GDP"]
-        source_EM = sources["source_EM"]
-        version_EM = sources["version_EM"]
-
-        #source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}"
-        model_scenario = f"{model}_{scenario}"
-        #dir_processed = project_dir / "data" / "processed" / source_version_grid / model_scenario
-        dir_processed = project_dir / "data" / "processed" / profile / model_scenario
-        print(f"Processed data directory: {dir_processed}")
-        if dir_processed.exists():
-            csv_file = dir_processed / f"df_urban_emissions_{model}_{scenario}.csv"
-            if csv_file.exists():
-                df_urban_emissions = pd.read_csv(dir_processed / f"df_urban_emissions_{model}_{scenario}.csv", sep=";")
-                df_urban_emissions["profile"] = profile
-                df_urban_emissions = pd.concat([df_urban_emissions, df_urban_emissions], axis=0)
-        else:
-            print(f"{PRINT_COLORS['red']}Processed data directory {dir_processed} does not exist. Please run the downscaling process first to generate the data.{PRINT_COLORS['end']}")
-
-    df_urban_emissions.to_csv(project_dir / "data" / "processed" / f"df_urban_emissions_{model}_{scenario}_all_profiles.csv", sep=";", index=False)
-
-    plot_maps.plot_urban_emissions_per_region(project_dir, df_urban_emissions)
 
 def upload_to_GEE(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = "default"):
 

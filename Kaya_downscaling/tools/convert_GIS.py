@@ -19,18 +19,18 @@ import xarray as xr
 import tkinter as tk
 from tkinter import filedialog
 
-def convert_IMAGE_regions_netcdf_to_tiff():
+# def convert_IMAGE_regions_netcdf_to_tiff():
 
-    ds_IMAGE_regions = xr.open_dataset("data/input/models/IMAGE/GREG.nc")
-    ds_IMAGE_regions = ds_IMAGE_regions.rename({"latitude": "lat", "longitude": "lon"})
-    print(f"Dataset opened: {ds_IMAGE_regions}")
-    print(ds_IMAGE_regions)
-    # get variable from dataset
-    var_regions = list(ds_IMAGE_regions.variables)[0]
-    print(f"Variable in dataset: {var_regions}")
-    print(f"Variable type: {type(var_regions)}")
-    output_file = "data/processed/IMAGE_GREG.tif"
-    convert_netcdf_to_tiff(ds_IMAGE_regions, var_regions, output_file)
+#     ds_IMAGE_regions = xr.open_dataset("data/input/models/IMAGE/GREG.nc")
+#     ds_IMAGE_regions = ds_IMAGE_regions.rename({"latitude": "lat", "longitude": "lon"})
+#     print(f"Dataset opened: {ds_IMAGE_regions}")
+#     print(ds_IMAGE_regions)
+#     # get variable from dataset
+#     var_regions = list(ds_IMAGE_regions.variables)[0]
+#     print(f"Variable in dataset: {var_regions}")
+#     print(f"Variable type: {type(var_regions)}")
+#     output_file = "data/processed/IMAGE_GREG.tif"
+#     convert_netcdf_to_tiff(ds_IMAGE_regions, var_regions, output_file)
 
 def convert_netcdf_to_tiff(ds: xr.Dataset, variable_name: str, output_file: str):
     # Open the NetCDF file
@@ -501,7 +501,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GIS conversion tools") # add_help=True by default
 
     parser.add_argument("-g", "--gpkg_to_shapefile", action="store_true", help="convert GeoPackage to shapefile")
-    parser.add_argument("-i", "--IMAGE_regions_netcdf_to_tiff", action="store_true", help="convert IMAGE regions NetCDF to TIFF")
+    #parser.add_argument("-i", "--IMAGE_regions_netcdf_to_tiff", action="store_true", help="convert IMAGE regions NetCDF to TIFF")
     # include directory argument for add_crs_to_tiff_files
     parser.add_argument("-a", "--add_crs_to_tiff_files", action="store_true", help="adds CRS to TIFF files in a directory")
     parser.add_argument("-d", "--directory", type=str, help="directory containing TIFF files to process")
@@ -515,9 +515,9 @@ if __name__ == "__main__":
     try:
         if hasattr(arguments, 'gpkg_to_shapefile') and arguments.gpkg_to_shapefile is True:
             convert_gpkg_to_shapefile()
-        if hasattr(arguments, 'IMAGE_regions_netcdf_to_tiff') and arguments.IMAGE_regions_netcdf_to_tiff is True:
-            convert_IMAGE_regions_netcdf_to_tiff()
-                # if no arguments, print message
+        # if hasattr(arguments, 'IMAGE_regions_netcdf_to_tiff') and arguments.IMAGE_regions_netcdf_to_tiff is True:
+        #     convert_IMAGE_regions_netcdf_to_tiff()
+        #         # if no arguments, print message
         if hasattr(arguments, 'add_crs_to_tiff_files') and arguments.add_crs_to_tiff_files is True:
         # pixi run python tools/convert_GIS.py -a -d "Z:\cold_data_storage\users\roelfsemam\data_downscaling\population\2UP\TowardsAnUrbanPreview_2024_GHSL2014_M3\results\LatLong_World\tpop" -c "EPSG:4326" -b "(-180, -90, 180, 90)"
             if arguments.directory is None or arguments.bounds is None:

@@ -19,21 +19,31 @@ import downscaling.settings_models as settings_models
 
 local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
-model_unit_conversions = {"IMAGE": {"Emissions|CO2": 1e6,  # Mt to t
-                                    "GDP|MER": 1e9,        # billion to 1
-                                    "GDP|PPP": 1e9,        # billion to 1
-                                    "Population": 1e6      # million to 1
-                                   },
+model_unit_conversions =    {"IMAGE": {"Emissions|CO2": 1e6,  # Mt to t
+                                       "GDP|MER": 1e9,        # billion to 1
+                                       "GDP|PPP": 1e9,        # billion to 1
+                                       "Population": 1e6      # million to 1
+                                      },
+                             "IMAGE_ScenarioMIP": {"Emissions|CO2": 1e6,  # Mt to t
+                                                   "GDP|MER": 1e9,        # billion to 1
+                                                   "GDP|PPP": 1e9,        # billion to 1
+                                                   "Population": 1e6      # million to 1
+                                                },
+                             "REMIND_ScenarioMIP": {"Emissions|CO2": 1e6,  # Mt to t
+                                                    "GDP|MER": 1e9,        # billion to 1
+                                                    "GDP|PPP": 1e9,        # billion to 1
+                                                    "Population": 1e6      # million to 1
+                                                   },
                           }
 
 # **************************GENERAL*******************************************
-def create_ISO_file_IMAGE():
-    # Read in GADM ISO codes raster
-    dir_GADM_raster = "K:/PythonWork/Downscaling/data/output"
-    file_GADM_raster = "iso_codes_raster_0_50.tif"
-    filepath_GADM_raster = f"{dir_GADM_raster}/{file_GADM_raster}"
-    with rasterio.open(filepath_GADM_raster) as src:
-       print_info_rasterio(src)
+# def create_ISO_file_IMAGE():
+#     # Read in GADM ISO codes raster
+#     dir_GADM_raster = "K:/PythonWork/Downscaling/data/output"
+#     file_GADM_raster = "iso_codes_raster_0_50.tif"
+#     filepath_GADM_raster = f"{dir_GADM_raster}/{file_GADM_raster}"
+#     with rasterio.open(filepath_GADM_raster) as src:
+#        print_info_rasterio(src)
 
 def get_IAM_region_info(model="IMAGE"):
     filename_region_grid = ""
@@ -42,53 +52,53 @@ def get_IAM_region_info(model="IMAGE"):
 
     return filename_region_grid, file_IAM_model_region_numbers
 
-def read_grid_info_IAM_regions(project_dir:Path, model:str, filename_region_grid:str, file_IAM_model_region_numbers:str, chunk:int, log: logging.Logger=local_log) -> Tuple[xr.Dataset, dict]:
-    '''
-    Input: netcdf file with region definitions; depending on model it includes region numbers, if not, they should be created
-    Output: xarray dataset with region codes (same as IAMC template) and region numbers (type int) as data variables
-            The number is zero for OCEAN
-    '''
+# def read_grid_info_IAM_regions(project_dir:Path, model:str, filename_region_grid:str, file_IAM_model_region_numbers:str, chunk:int, log: logging.Logger=local_log) -> Tuple[xr.Dataset, dict]:
+#     '''
+#     Input: netcdf file with region definitions; depending on model it includes region numbers, if not, they should be created
+#     Output: xarray dataset with region codes (same as IAMC template) and region numbers (type int) as data variables
+#             The number is zero for OCEAN
+#     '''
 
-    # init
-    xr_IAM_regions = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
-    xr_IAM_regions_processed = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
-    region_mapping = {}
+#     # init
+#     xr_IAM_regions = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
+#     xr_IAM_regions_processed = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
+#     region_mapping = {}
 
-    if not filename_region_grid == "":
-        match model:
-            case "IMAGE":
-                xr_IAM_regions = xr.open_dataset(filename_region_grid, decode_coords="all")
-                # Add region codes to IAMC region codes
-                csv_path = project_dir / f"data/input/models/{model}/{file_IAM_model_region_numbers}"
-                IMAGE_regions = pd.read_csv(csv_path, sep=",")
-                region_mapping = dict(zip(IMAGE_regions["IMAGE number"], IMAGE_regions["IMAGE region"]))
-                log.info(region_mapping)
+#     if not filename_region_grid == "":
+#         match model:
+#             case "IMAGE":
+#                 xr_IAM_regions = xr.open_dataset(filename_region_grid, decode_coords="all")
+#                 # Add region codes to IAMC region codes
+#                 csv_path = project_dir / f"data/input/models/{model}/{file_IAM_model_region_numbers}"
+#                 IMAGE_regions = pd.read_csv(csv_path, sep=",")
+#                 region_mapping = dict(zip(IMAGE_regions["number"], IMAGE_regions["region"]))
+#                 log.info(region_mapping)
 
-                # process dataset
-                xr_IAM_regions_processed = xr_IAM_regions.copy()
-                xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"GREG": "region_number"})
-                xr_IAM_regions_processed = xr_IAM_regions_processed.isel(time=0, drop=True)
-                xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"longitude": "x", "latitude": "y"})
-                xr_IAM_regions_processed = xr_IAM_regions_processed.chunk({'y': chunk, 'x': chunk})
+#                 # process dataset
+#                 xr_IAM_regions_processed = xr_IAM_regions.copy()
+#                 xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"GREG": "region_number"})
+#                 xr_IAM_regions_processed = xr_IAM_regions_processed.isel(time=0, drop=True)
+#                 xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"longitude": "x", "latitude": "y"})
+#                 xr_IAM_regions_processed = xr_IAM_regions_processed.chunk({'y': chunk, 'x': chunk})
 
-                # Change Greenland (region 27) to region 11 (Canada)
-                xr_IAM_regions_processed['region_number'] = xr_IAM_regions_processed['region_number'].where(xr_IAM_regions_processed['region_number']!=27, 11)
+#                 # Change Greenland (region 27) to region 11 (Canada)
+#                 xr_IAM_regions_processed['region_number'] = xr_IAM_regions_processed['region_number'].where(xr_IAM_regions_processed['region_number']!=27, 11)
 
-                # Add OCEAN region
-                region_mapping[0] = "OCEAN"
-                region_mapping = dict(sorted(region_mapping.items()))
-                log.info(xr_IAM_regions.data_vars)
-                log.info(f"Original data variables: {xr_IAM_regions.data_vars}")
-                xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].where(~np.isnan(xr_IAM_regions_processed["region_number"]), 0)
-                xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].astype(int)
+#                 # Add OCEAN region
+#                 region_mapping[0] = "OCEAN"
+#                 region_mapping = dict(sorted(region_mapping.items()))
+#                 log.info(xr_IAM_regions.data_vars)
+#                 log.info(f"Original data variables: {xr_IAM_regions.data_vars}")
+#                 xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].where(~np.isnan(xr_IAM_regions_processed["region_number"]), 0)
+#                 xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].astype(int)
 
-                # Add region code (used in IAMC template)
-                vectorized_map = np.vectorize(region_mapping.get)
-                xr_IAM_regions_processed['region_code'] = (xr_IAM_regions_processed['region_number'].dims, vectorized_map(xr_IAM_regions_processed['region_number'].values))
+#                 # Add region code (used in IAMC template)
+#                 vectorized_map = np.vectorize(region_mapping.get)
+#                 xr_IAM_regions_processed['region_code'] = (xr_IAM_regions_processed['region_number'].dims, vectorized_map(xr_IAM_regions_processed['region_number'].values))
 
-                log.info("Region numbers and codes in IAM regions dataset:")
-                log.info(np.unique(xr_IAM_regions_processed["region_number"]))
-                log.info(np.unique(xr_IAM_regions_processed["region_code"]))
+#                 log.info("Region numbers and codes in IAM regions dataset:")
+#                 log.info(np.unique(xr_IAM_regions_processed["region_number"]))
+#                 log.info(np.unique(xr_IAM_regions_processed["region_code"]))
 
     return xr_IAM_regions_processed, region_mapping
 
@@ -114,10 +124,10 @@ def read_IAM_regions_data(project_dir: Path, model:str, scenario:str, regions_ma
 
 def get_regions(project_dir:Path, model:str, file_IAM_model_region_numbers:str) -> Tuple[pd.DataFrame, dict]:
     csv_path = project_dir / file_IAM_model_region_numbers
-    regions = pd.read_csv(csv_path, sep=",")
+    regions = pd.read_csv(csv_path, sep=";")
     regions_mapping = {}
-    if model == "IMAGE":
-        regions_mapping = dict(zip(regions["IMAGE number"], regions["IMAGE region"]))
+    #if model == "IMAGE":
+    regions_mapping = dict(zip(regions["number"], regions["region"]))
 
     return regions, regions_mapping
 
@@ -351,7 +361,7 @@ def process_EM_regions_data(df:pd.DataFrame, years_downscaling:list, varname_dat
         df_CO2_excl_ship_av_AFOLU["unit"] = unit_CO2
 
         # check sum of regions in the year 2020
-        log.info("Check IMAGE CO2 emissions 2020 after processing EM regions data:")
+        log.info(f"Check {model} CO2 emissions 2020 after processing EM regions data:")
         value_CO2_2020_projections = df_CO2_excl_ship_av_AFOLU[df_CO2_excl_ship_av_AFOLU["year"]==2020].groupby(["model", "scenario", "year", "variable", "unit"]).sum().reset_index()["value"]
         log.info(f"Emissions 2020: {value_CO2_2020_projections.iloc[0]:,.0f}")
 

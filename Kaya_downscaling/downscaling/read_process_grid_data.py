@@ -182,7 +182,6 @@ def ensure_rio_dimension_order(da):
 
     return da.transpose(*new_order)
 
-
 def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, varname: str, year_check:int, log: logging.Logger) -> xr.Dataset:
     """
     Read TIFF files and combine them into a NetCDF while preserving all metadata including CRS.
@@ -191,87 +190,92 @@ def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, 
     files = sorted(data_dir.glob(glob_pattern))
     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
-    data_list = []
-    years = []
-
     # Store metadata from the first file (assuming all files have consistent metadata)
+    data_list, years, opened = [], [], []
     first_file_metadata = {}
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
-        for i, f in enumerate(files):
-            #log.info(f"Reading file: {f.name}")
-            year = int(re.search(search_pattern, f.name).group(1))
-            #if year >= base_year:
-            years.append(year)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+            for i, f in enumerate(files):
+                #log.info(f"Reading file: {f.name}")
+                year = int(re.search(search_pattern, f.name).group(1))
+                years.append(year)
 
-            da = rxr.open_rasterio(f, chunks={"x": "auto", "y": "auto"})
-            da = da.squeeze(drop=True)
-            da = da.chunk("auto")
-            da = ensure_rio_dimension_order(da)
+                da = rxr.open_rasterio(f, chunks={"x": "auto", "y": "auto"})
+                opened.append(da)  # keep the raw handle so it can be closed in the finally block
+                da = da.squeeze(drop=True)
+                da = da.chunk("auto")
+                da = ensure_rio_dimension_order(da)
 
-            # Store metadata from first file
-            if i == 0:
-                first_file_metadata = {
-                    'crs': da.rio.crs,
-                    'transform': da.rio.transform(),
-                    'nodata': da.rio.nodata, # informational only, not used internally
-                    'encoding': da.encoding.copy(),
-                    'attrs': da.attrs.copy(),
-                    'unit': da.attrs.get('unit', None)
-                }
-                log.info(f"NoData: {first_file_metadata['nodata']}")
-                log.info(f"CRS: {first_file_metadata['crs']}")
-                log.info(f"Transform: {first_file_metadata['transform']}")
-                arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da)
-                log.info(f"Resolution of annual data: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
-            if year == year_check:
-                check_nan_locations(f, varname, year_check, log)
-            data_list.append(da)
+                # Store metadata from first file
+                if i == 0:
+                    first_file_metadata = {
+                        'crs': da.rio.crs,
+                        'transform': da.rio.transform(),
+                        'nodata': da.rio.nodata, # informational only, not used internally
+                        'encoding': da.encoding.copy(),
+                        'attrs': da.attrs.copy(),
+                        'unit': da.attrs.get('unit', None)
+                    }
+                    log.info(f"NoData: {first_file_metadata['nodata']}")
+                    log.info(f"CRS: {first_file_metadata['crs']}")
+                    log.info(f"Transform: {first_file_metadata['transform']}")
+                    arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da)
+                    log.info(f"Resolution of annual data ({varname}): {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
+                if year == year_check:
+                    check_nan_locations(f, varname, year_check, log)
+                data_list.append(da)
 
-    # Combine along time dimension
-    # --> data becomes CF format (CF-compliant geospatial NetCDF)
-    # https://cfconventions.org/
-    # This means:
-    # - missing data = NaN
-    # - nodata is not a raster attribute
-    # - _FillValue is only for writing to disk
-    ds_rxr = xr.concat(data_list, dim="time")
-    ds_rxr = ds_rxr.assign_coords(time=years)
-    ds_rxr = ds_rxr.to_dataset(name=varname)
+        # Combine along time dimension
+        # --> data becomes CF format (CF-compliant geospatial NetCDF)
+        # https://cfconventions.org/
+        # This means:
+        # - missing data = NaN
+        # - nodata is not a raster attribute
+        # - _FillValue is only for writing to disk
+        ds_rxr = xr.concat(data_list, dim="time")
+        ds_rxr = ds_rxr.assign_coords(time=years)
+        ds_rxr = ds_rxr.to_dataset(name=varname)
 
-    # Restore CRS information
-    # From this moment on:
-    # - internal missing data = NaN
-    # - rio.nodata is irrelevant
-    # - all math works correctly
-    # - memory and reload behave identically
-    # What should not be moved forward:
-    # - 'encoding': da.encoding.copy(),       # ❌ remove
-    # - 'spatial_ref': da.spatial_ref,         # ❌ remove
-    # - 'spatial_ref_attrs': da.spatial_ref.attrs.copy()  # ❌ remov
+        # Restore CRS information
+        # From this moment on:
+        # - internal missing data = NaN
+        # - rio.nodata is irrelevant
+        # - all math works correctly
+        # - memory and reload behave identically
+        # What should not be moved forward:
+        # - 'encoding': da.encoding.copy(),       # ❌ remove
+        # - 'spatial_ref': da.spatial_ref,         # ❌ remove
+        # - 'spatial_ref_attrs': da.spatial_ref.attrs.copy()  # ❌ remov
 
-    # Handle nodata values
-    nodata = first_file_metadata['nodata']
-    print(f"Changing from tiff to xarray dataset for variable: {varname}, therefore nodata value ({nodata}) is set to NaN internally")
-    if nodata is not None:
-        ds_rxr[varname] = ds_rxr[varname].where(ds_rxr[varname] != nodata)
-        ds_rxr.attrs["source_nodata"] = nodata
-    else:
-        ds_rxr.attrs["source_nodata"] = np.nan
-    # Restore CRS if available
-    if first_file_metadata['crs'] is not None:
-        ds_rxr = ds_rxr.rio.write_crs(first_file_metadata['crs'])
-        ds_rxr = ds_rxr.rio.write_coordinate_system()
-    # Restore transform if available
-    if first_file_metadata['transform'] is not None:
-        ds_rxr = ds_rxr.rio.write_transform(first_file_metadata['transform'])
-    ds_rxr.attrs.update({
-        'title': f'Combined {varname} data from TIFF files',
-        'source': f'Combined from {len(files)} TIFF files',
-        #'crs': str(first_file_metadata['crs']) if first_file_metadata['crs'] else 'Unknown',
-        'original_transform': str(first_file_metadata['transform']) if first_file_metadata['transform'] else 'Unknown',
-        #'original_nodata': first_file_metadata['nodata'] if first_file_metadata['nodata'] is not None else 'None'
-    })
+        # Handle nodata values
+        nodata = first_file_metadata['nodata']
+        print(f"Changing from tiff to xarray dataset for variable: {varname}, therefore nodata value ({nodata}) is set to NaN internally")
+        if nodata is not None:
+            ds_rxr[varname] = ds_rxr[varname].where(ds_rxr[varname] != nodata)
+            ds_rxr.attrs["source_nodata"] = nodata
+        else:
+            ds_rxr.attrs["source_nodata"] = np.nan
+        # Restore CRS if available
+        if first_file_metadata['crs'] is not None:
+            ds_rxr = ds_rxr.rio.write_crs(first_file_metadata['crs'])
+            ds_rxr = ds_rxr.rio.write_coordinate_system()
+        # Restore transform if available
+        if first_file_metadata['transform'] is not None:
+            ds_rxr = ds_rxr.rio.write_transform(first_file_metadata['transform'])
+        ds_rxr.attrs.update({
+            'title': f'Combined {varname} data from TIFF files',
+            'source': f'Combined from {len(files)} TIFF files',
+            #'crs': str(first_file_metadata['crs']) if first_file_metadata['crs'] else 'Unknown',
+            'original_transform': str(first_file_metadata['transform']) if first_file_metadata['transform'] else 'Unknown',
+            #'original_nodata': first_file_metadata['nodata'] if first_file_metadata['nodata'] is not None else 'None'
+        })
+    finally:
+        for da in opened:
+            da.close()
+            data_list.clear()
+            opened.clear()
+            gc.collect()
 
     return ds_rxr
 
@@ -369,73 +373,81 @@ def print_transform(transform):
     list_info.append(f"|{transform.d:.4f}, {transform.e:.4f}, {transform.f:.4f}|")
     list_info.append(f"|{transform.g:.4f}, {transform.h:.4f}, {transform.i:.4f}|")
 
+    for item in list_info:
+        log.info(item)
     return list_info
 
 def print_info_rasterio(src: DatasetReader, band:int=1, log: logging.Logger=local_log) -> float:
     raster = src.read(band)
 
-    print("=== Rasterio dataset parameters ===")
-    print(f"\tcrs: {src.crs}")
-    print(f"\tNodata: {src.nodata}")
-    print(f"\tData type: {src.dtypes[band - 1]}")
-    print(f"\tBounds (west, south, east, north): {src.bounds}")
-    print(f"\tWidth: {src.width}, Height: {src.height}")
-    print(f"\tNumber of bands: {src.count}")
-    print(f"\tPixel size: {src.res}")
-    print(f"\tRaster dimensions: {src.width} x {src.height} pixels")
-    print(f"\tNumber of bands: {src.count}")
-    print(f"\tunit: {src.units}")
-    print(f"\tunit: {src.crs.linear_units}")
-    print(f"mask_flag_enums: {src.mask_flag_enums}")
+    log.info(f"{'*'*250}")
+    log.info(f"\n\n=== Rasterio dataset parameters===", extra={"summary": True})
+    log.info(f"{src.name}", extra={"summary": True})
+    log.info(f"\tcrs: {src.crs}", extra={"summary": True})
+    log.info(f"\tNodata: {src.nodata}", extra={"summary": True})
+    log.info(f"\tData type: {src.dtypes[band - 1]}", extra={"summary": True})
+    log.info(f"\tBounds (west, south, east, north): {src.bounds}", extra={"summary": True})
+    log.info(f"\tWidth: {src.width}, Height: {src.height}", extra={"summary": True})
+    log.info(f"\tNumber of bands: {src.count}", extra={"summary": True})
+    log.info(f"\tPixel size: {src.res}", extra={"summary": True})
+    log.info(f"\tRaster dimensions: {src.width} x {src.height} pixels", extra={"summary": True})
+    log.info(f"\tNumber of bands: {src.count}", extra={"summary": True})
+    log.info(f"\tunit: {src.units}", extra={"summary": True})
+    log.info(f"\tunit: {src.crs.linear_units}", extra={"summary": True})
+    log.info(f"mask_flag_enums: {src.mask_flag_enums}", extra={"summary": True})
     unit = src.crs.linear_units
 
     # Get nodata value from band if not specified
-    print(f"Check no data in band {band}")
+    log.info(f"Check no data in band {band}", extra={"summary": True})
     nodata = src.nodatavals[band - 1]
-    print(f"NoData value: {nodata}")
+    log.info(f"NoData value: {nodata}", extra={"summary": True})
     _FillValue = src.tags(band).get('_FillValue')
-    print(f"NoData value: {_FillValue}")
+    log.info(f"NoData value: {_FillValue}", extra={"summary": True})
 
     # Get GeoTransform equivalent
     transform = src.transform
-    print("GeoTransform:")
-    print(f"\t{transform.c} ({unit}(: x-coordinate of the upper-left corner of the upper-left pixel.")
-    print(f"\t{transform.a} ({unit}(: w-e pixel resolution / pixel width.")
-    print(f"\t{transform.b} ({unit}(: row rotation (typically zero).")
-    print(f"\t{transform.f} ({unit}(: y-coordinate of the upper-left corner of the upper-left pixel.")
-    print(f"\t{transform.d} ({unit}(: column rotation (typically zero).")
-    print(f"\t{transform.e} ({unit}(: n-s pixel resolution / pixel height (negative value for a north-up image).")
+    log.info("GeoTransform:", extra={"summary": True})
+    log.info(f"\t{transform.c} ({unit}(: x-coordinate of the upper-left corner of the upper-left pixel.", extra={"summary": True})
+    log.info(f"\t{transform.a} ({unit}(: w-e pixel resolution / pixel width.", extra={"summary": True})
+    log.info(f"\t{transform.b} ({unit}(: row rotation (typically zero).", extra={"summary": True})
+    log.info(f"\t{transform.f} ({unit}(: y-coordinate of the upper-left corner of the upper-left pixel.", extra={"summary": True})
+    log.info(f"\t{transform.d} ({unit}(: column rotation (typically zero).", extra={"summary": True})
+    log.info(f"\t{transform.e} ({unit}(: n-s pixel resolution / pixel height (negative value for a north-up image).", extra={"summary": True})
 
     # check min/max values
-    print(f"Min value: {raster.min()}")
-    print(f"Max value: {raster.max()}")
-    print(f"Unique values: {np.unique(raster)}")
-    print("===========================")
+    log.info(f"Min value: {raster.min()}", extra={"summary": True})
+    log.info(f"Max value: {raster.max()}", extra={"summary": True})
+    log.info(f"Unique values: {np.unique(raster)}", extra={"summary": True})
+    log.info("===========================", extra={"summary": True})
+
+    log.info(f"==================================\n\n", extra={"summary": True})
 
     return nodata
 
 def print_info_rioxarray(da: xr.DataArray, log: logging.Logger=local_log):
-    log.info("=== xr parameters ===")
-    log.info(f"encoding:")
-    [log.info(f"  - {key}: {value}") for key, value in da.encoding.items()]
-    log.info(f"attrs:")
-    [log.info(f"  - {key}: {value}") for key, value in da.attrs.items()]
-    log.info(f"coords:")
-    [log.info(f"\t  - {key}: {value}") for key, value in da.coords.items()]
+
+    log.info(f"{'*'*250}")
+    log.info("\n\n=== xr parameters ===", extra={"summary": True})
+    log.info(f"encoding:", extra={"summary": True})
+    [log.info(f"  - {key}: {value}", extra={"summary": True}) for key, value in da.encoding.items()]
+    log.info(f"attrs:", extra={"summary": True})
+    [log.info(f"  - {key}: {value}", extra={"summary": True}) for key, value in da.attrs.items()]
+    log.info(f"coords:", extra={"summary": True})
+    [log.info(f"\t  - {key}: {value}", extra={"summary": True}) for key, value in da.coords.items()]
     if hasattr(da, 'spatial_ref'):
-        [log.info(f"  - {key}: {value}") for key, value in da.spatial_ref.attrs.items()]
+        [log.info(f"  - {key}: {value}", extra={"summary": True}) for key, value in da.spatial_ref.attrs.items()]
     else:
-        log.info(f"  - No spatial_ref attribute found")
+        log.info(f"  - No spatial_ref attribute found", extra={"summary": True})
 
-    log.info(f"Shape: {da.values.shape}")
-    log.info(f"Type: {da.values.dtype}")
-    log.info(f"Dims: {da.dims}")
-    log.info(f"Sizes: {da.sizes}")
+    log.info(f"Shape: {da.values.shape}", extra={"summary": True})
+    log.info(f"Type: {da.values.dtype}", extra={"summary": True})
+    log.info(f"Dims: {da.dims}", extra={"summary": True})
+    log.info(f"Sizes: {da.sizes}", extra={"summary": True})
 
-    log.info("=== rxr rio parameters ===")
+    log.info("\n=== rxr rio parameters ===", extra={"summary": True})
     # if da.rio.nodata exists
     if hasattr(da.rio, 'nodata'):
-        log.info(f"da.rio.nodata: {da.rio.nodata}")
+        log.info(f"da.rio.nodata: {da.rio.nodata}", extra={"summary": True})
     else:
         log.info(f"da.rio.nodata: <not defined>")
 
@@ -447,9 +459,11 @@ def print_info_rioxarray(da: xr.DataArray, log: logging.Logger=local_log):
             if callable(value):
                 pass
             else:
-                log.info(f"\t\t{attr}: {value}")
+                log.info(f"\t\t{attr}: {value}", extra={"summary": True})
         except Exception as e:
             log.info(f"{attr}: <error accessing: {e}>")
+
+    log.info(f"==================================\n\n", extra={"summary": True})
 
 def check_nan(da: xr.DataArray, log: logging.Logger=local_log):
 
@@ -857,8 +871,9 @@ def count_values_rio_xarray(ds:xr.Dataset, varname:str, year: int, log:logging.L
     # Create DataFrame
     df = pd.DataFrame(stats_data, columns=['Statistic', 'Count', 'Percentage'])
     df['Count'] = df['Count'].apply(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x)
-    log.info("Count Statistics:")
-    log.info("\n" + df.to_string(index=False))
+    log.info(f"{'*'*250}")
+    log.info("Count Statistics:", extra={"summary": True})
+    log.info("\n" + df.to_string(index=False), extra={"summary": True})
 
 def calc_total_sum_count_average(src:DatasetReader, chunk_size=512) -> Tuple[float|None, int|None, float|None]:
     '''
@@ -1130,8 +1145,9 @@ def check_values_tiff(filepath:Path, band=1, inlc_inf=False, log: logging.Logger
         # Create DataFrame
         df = pd.DataFrame(stats_data, columns=['Statistic', 'Count', 'Percentage'])
         df['Count'] = df['Count'].apply(lambda x: f"{int(x):,}" if isinstance(x, (int, float)) else x)
-        log.info("Count Statistics:")
-        log.info("\n" + df.to_string(index=False))
+        log.info(f"{'*'*250}")
+        log.info("Count Statistics:", extra={"summary": True})
+        log.info("\n" + df.to_string(index=False), extra={"summary": True})
 
         # Add summary statistics
         sum, cnt, avg = calc_total_sum_count_average(src)
@@ -1220,17 +1236,21 @@ def summarize_processed_tiffs(output_tiff_dir: Path, log: logging.Logger=local_l
 
     return summary
 
-def get_parameters_SE(process_data:bool=False, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2", log: logging.Logger=local_log) -> Tuple[Path, str, str, str, str, str, float]:
+def get_parameters_SE(process_data:bool=False, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2", log: logging.Logger=local_log) -> Tuple[Path, str, str, str, str]:
+    '''
+    Get the parameters for the downscaling process based on the variable name, source, version, and SSP base.
+    Returns a tuple of (data_dir, end_filename, glob_pattern, search_pattern, test
+    '''
+
     # init
     end_filename = ""
     glob_pattern = ""
     search_pattern = ""
     test_filename = ""
-    mult_factor = 1.0
     data_dir = Path(".")  # default to current directory if not set
     rxr_filename = ""
 
-    # Read the JSON file
+    # Read the JSON file``
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
     data_files = apply_root_json(data_files, data_files["data_root"])
@@ -1246,15 +1266,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                     # 1 init settings population data
                     if process_data:
                         DIR_MAPPING_POP_2UP = {
-                            "GHSL_2024_M1": data_original["dir_population_2UP_GHSL_M1_original"],
-                            "GHSL_2024_M3": data_original["dir_population_2UP_GHSL_M3_original"],
-                            "M1": data_original["dir_population_2UP_M1_original"],
-                            "M3": data_original["dir_population_2UP_M3_original"],
+                            "GHSL_2024_M1": f"{data_original["dir_population_2UP_GHSL_2024_M1_original"]}/{SSP_base}",
+                            "GHSL_2024_M3": f"{data_original["dir_population_2UP_GHSL_2024_M3_original"]}/{SSP_base}",
+                            "M1": f"{data_original["dir_population_2UP_M1_original"]}/{SSP_base}",
+                            "M3": f"{data_original["dir_population_2UP_M3_original"]}/{SSP_base}",
                             }
                     else:
                         DIR_MAPPING_POP_2UP = {
-                            "GHSL_2024_M1": f"{data_run["dir_population_2UP_GHSL_M1_run"]}/{SSP_base}",
-                            "GHSL_2024_M3": f"{data_run["dir_population_2UP_GHSL_M3_run"]}/{SSP_base}",
+                            "GHSL_2024_M1": f"{data_run["dir_population_2UP_GHSL_2024_M1_run"]}/{SSP_base}",
+                            "GHSL_2024_M3": f"{data_run["dir_population_2UP_GHSL_2024_M3_run"]}/{SSP_base}",
                             "M1": f"{data_run["dir_population_2UP_M1_run"]}/{SSP_base}",
                             "M3": f"{data_run["dir_population_2UP_M3_run"]}/{SSP_base}",
                             }
@@ -1267,6 +1287,7 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                     if version in DIR_MAPPING_POP_2UP:
                         #data_dir = DIR_MAPPING_POP_2UP[version]
                         data_dir = Path(DIR_MAPPING_POP_2UP[version])
+                        data_dir.mkdir(parents=True, exist_ok=True)
                         model = version.split('_')[-1]  # Gets "M1" or "M3"
                         txt = TXT_MAPPING_2UP[version]
                         test_filename = f"{model}{txt}_{SSP_base}_2020_tpop.tif"
@@ -1283,18 +1304,18 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                     if process_data:
                         DIR_MAPPING_POP_Wang = {
                             #"version_1": dir_population_Wang_v1,
-                            "version_2": data_original["dir_population_Wang_v2_original"],
-                            "version_3": data_original["dir_population_Wang_v3_original"],
+                            "version_2": f"{data_original["dir_population_Wang_v2_original"]}/{SSP_base}",
+                            "version_3": f"{data_original["dir_population_Wang_v3_original"]}/{SSP_base}",
                         }
                     else:
                         DIR_MAPPING_POP_Wang = {
                             #"version_1": dir_population_Wang_v1,
-                            "version_2": data_run["dir_population_Wang_v2_run"],
-                            "version_3": data_run["dir_population_Wang_v3_run"],
+                            "version_2": f"{data_run["dir_population_Wang_v2_run"]}/{SSP_base}",
+                            "version_3": f"{data_run["dir_population_Wang_v3_run"]}/{SSP_base}",
                         }
                     if version in DIR_MAPPING_POP_Wang:
-                        #data_dir = f"{DIR_MAPPING_POP_Wang[version]}/{SSP_base}"
-                        data_dir = Path(DIR_MAPPING_POP_Wang[version]) / SSP_base
+                        data_dir = Path(DIR_MAPPING_POP_Wang[version])
+                        data_dir.mkdir(parents=True, exist_ok=True)
                         test_filename = f"{SSP_base}_2020.tif"
                         rxr_filename = f"population_Wang_{version}"
                         end_filename = ""
@@ -1306,15 +1327,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                 case "Zhuang":
                     if process_data:
                         DIR_MAPPING_POP_Zhuang = {
-                            "version_1": data_original["dir_population_Zhuang_v1_original"],
+                            "version_1": f"{data_original["dir_population_Zhuang_version_1_original"]}/{SSP_base}",
                         }
                     else:
                         DIR_MAPPING_POP_Zhuang = {
-                            "version_1": data_run["dir_population_Zhuang_v1_run"],
+                            "version_1": f"{data_run["dir_population_Zhuang_version_1_run"]}/{SSP_base}",
                         }
                     if version in DIR_MAPPING_POP_Zhuang:
-                        #data_dir = f"{DIR_MAPPING_POP_Zhuang[version]}/{SSP_base}"
-                        data_dir = Path(DIR_MAPPING_POP_Zhuang[version]) / SSP_base
+                        data_dir = Path(DIR_MAPPING_POP_Zhuang[version])
+                        data_dir.mkdir(parents=True, exist_ok=True)
                         test_filename = f"2020.tif"
                         rxr_filename = f"population_Zhuang_{version}"
                         end_filename = ""
@@ -1326,15 +1347,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                 case "Murakami":
                     if process_data:
                         DIR_MAPPING_POP_Murakami = {
-                            "version_2021_1": data_original["dir_population_Murakami_v2021_1_original"],
+                            "version_2021_1": f"{data_original["dir_population_Murakami_version_2021_1_original"]}/{SSP_base}",
                         }
                     else:
                         DIR_MAPPING_POP_Murakami = {
-                            "version_2021_1": data_run["dir_population_Murakami_v2021_1_run"],
+                            "version_2021_1": f"{data_run["dir_population_Murakami_version_2021_1_run"]}/{SSP_base}",
                         }
                     if version in DIR_MAPPING_POP_Murakami:
-                        #data_dir = f"{DIR_MAPPING_POP_Murakami[version]}/{SSP_base}"
-                        data_dir = Path(DIR_MAPPING_POP_Murakami[version]) / SSP_base
+                        data_dir = Path(DIR_MAPPING_POP_Murakami[version])
+                        data_dir.mkdir(parents=True, exist_ok=True)
                         match SSP_base:
                             case "SSP1": SSP_str = "p1"
                             case "SSP2": SSP_str = "p2"
@@ -1350,14 +1371,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                 case "COMPASS":
                     if process_data:
                         DIR_MAPPING_POP_COMPASS = {
-                            "version_2": data_original["dir_population_COMPASS_v2_original"],
+                            "version_2": f"{data_original["dir_population_COMPASS_version_2_original"]}/{SSP_base}",
                         }
                     else:
                         DIR_MAPPING_POP_COMPASS = {
-                            "version_2": f"{data_run["dir_population_COMPASS_v2_run"]}/{SSP_base}",
+                            "version_2": f"{data_run["dir_population_COMPASS_version_2_run"]}/{SSP_base}",
                         }
                     if version in DIR_MAPPING_POP_COMPASS:
                         data_dir = Path(DIR_MAPPING_POP_COMPASS[version])
+                        data_dir.mkdir(parents=True, exist_ok=True)
                         if process_data:
                             test_filename = f"Population_count_2020_6min.tif"
                         else:
@@ -1376,15 +1398,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                         # https://zenodo.org/records/7898409
                         if process_data:
                             DIR_MAPPING = {
-                                "version_7": data_original["dir_gdp_ppp_Wang_v7_original"],
+                                "version_7": f"{data_original["dir_gdp_ppp_Wang_version_7_original"]}/{SSP_base}",
                             }
                         else:
                             DIR_MAPPING = {
-                                "version_7": data_run["dir_gdp_ppp_Wang_v7_run"],
+                                "version_7": f"{data_run["dir_gdp_ppp_Wang_version_7_run"]}/{SSP_base}",
                             }
                         if version in DIR_MAPPING:
-                            #data_dir = f"{DIR_MAPPING[version]}/{SSP_base}"
-                            data_dir = Path(DIR_MAPPING[version]) / SSP_base
+                            data_dir = Path(DIR_MAPPING[version])
+                            data_dir.mkdir(parents=True, exist_ok=True)
                             test_filename = f"GDP2020_{SSP_base}.tif"
                             rxr_filename = f"gdp_ppp_Wang_{version}_{SSP_base}"
                             end_filename = ""
@@ -1396,15 +1418,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                     case "Murakami":
                         if process_data:
                             DIR_MAPPING_POP_Murakami = {
-                            "version_2021_1": data_original["dir_gdp_ppp_Murakami_v2021_1_original"],
+                            "version_2021_1": f"{data_original["dir_gdp_ppp_Murakami_version_2021_1_original"]}/{SSP_base}",
                             }
                         else:
                             DIR_MAPPING_POP_Murakami = {
-                                "version_2021_1": data_run["dir_gdp_ppp_Murakami_v2021_1_run"],
+                                "version_2021_1": f"{data_run["dir_gdp_ppp_Murakami_version_2021_1_run"]}/{SSP_base}",
                             }
                         if version in DIR_MAPPING_POP_Murakami:
-                            #data_dir = f"{DIR_MAPPING_POP_Murakami[version]}/{SSP_base}"
-                            data_dir = Path(DIR_MAPPING_POP_Murakami[version]) / SSP_base
+                            data_dir = Path(DIR_MAPPING_POP_Murakami[version])
+                            data_dir.mkdir(parents=True, exist_ok=True)
                             test_filename = f"gdp2020.tif"
                             rxr_filename = f"gdp_ppp_Murakami_{version}_{SSP_base}"
                             end_filename = ""
@@ -1414,14 +1436,15 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
                     case "COMPASS":
                         if process_data:
                             DIR_MAPPING_POP_COMPASS = {
-                                "version_2": data_original["dir_gdp_ppp_COMPASS_v2_original"],
+                                "version_2": f"{data_original["dir_gdp_ppp_COMPASS_version_2_original"]}/{SSP_base}",
                             }
                         else:
                             DIR_MAPPING_POP_COMPASS = {
-                                "version_2": f"{data_run["dir_gdp_ppp_COMPASS_v2_run"]}/{SSP_base}",
+                                "version_2": f"{data_run["dir_gdp_ppp_COMPASS_version_2_run"]}/{SSP_base}",
                             }
                         if version in DIR_MAPPING_POP_COMPASS:
                             data_dir = Path(DIR_MAPPING_POP_COMPASS[version])
+                            data_dir.mkdir(parents=True, exist_ok=True)
                             if process_data:
                                 test_filename = f"GDP_2020_6min.tif"
                             else:
@@ -1438,9 +1461,68 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
             rxr_filename = None
             exit()
 
-    return data_dir, rxr_filename, end_filename, glob_pattern, search_pattern, test_filename, mult_factor
+    return data_dir, rxr_filename, glob_pattern, search_pattern, test_filename
 
-def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, data_dir:Path, glob_pattern:str, band:int=1, log: logging.Logger=local_log) -> Path:
+def _clamp_low_values(tiff_dir: Path, min_valid: float, fill: float = 0.0, band: int = 1,
+                     log: logging.Logger = local_log) -> None:
+    """Set tiny positive COMPASS artefact pixels (~1e-15) to `fill`, in place, leaving nodata untouched.
+    `min_valid` and `fill` should match what the COMPASS data provider used."""
+    for tiff_path in sorted(tiff_dir.glob("*.tif")):
+        with rasterio.open(tiff_path, "r") as src:
+            profile = src.profile.copy()
+            data = src.read(band)
+            nodata = src.nodata
+        valid = np.isfinite(data)
+        if nodata is not None:
+            valid &= (data != nodata)
+        artefacts = valid & (data > 0) & (data < min_valid)
+        n_art = int(artefacts.sum())
+        if n_art:
+            log.info(f"{tiff_path.name}: clamping {n_art:,} pixels in (0, {min_valid:g}) to {fill:g}")
+            data[artefacts] = fill
+            with rasterio.open(tiff_path, "w", **profile) as dst:
+                dst.write(data, band)
+
+def _log_low_value_distribution(tiff_path: Path, band: int = 1, log: logging.Logger = local_log) -> None:
+    """Read-only: log the low-end distribution of positive values, to size the clamp floor."""
+    if not tiff_path.is_file():
+        log.info(f"_log_low_value_distribution: file not found: {tiff_path}")
+        return
+    with rasterio.open(tiff_path, "r") as src:
+        data = src.read(band).astype("float64").ravel()
+        nodata = src.nodata
+    valid = np.isfinite(data) & (data > 0)
+    if nodata is not None:
+        valid &= (data != nodata)
+    pos = data[valid]
+    if pos.size == 0:
+        log.info(f"_log_low_value_distribution: no positive values in {tiff_path.name}")
+        return
+    total = pos.sum()
+    pct = {q: float(np.percentile(pos, q)) for q in [0, 0.01, 0.1, 1, 5, 50]}
+    log.info(f"{tiff_path.name}: positive cells={pos.size:,}, min={pos.min():.3e}, max={pos.max():.3e}, sum={total:.3e}")
+    log.info(f"  percentiles: " + ", ".join(f"{q}%={v:.3e}" for q, v in pct.items()))
+    rows = []
+    for t in [1, 1e2, 1e3, 1e4]:
+        m = pos < t
+        rows.append({"threshold": t, "cells": int(m.sum()), "pct_of_GDP": 100 * pos[m].sum() / total})
+    df_floor = pd.DataFrame(rows)
+    log.info(f"{'*'*250}")
+    log.info(f"  low-value distribution (threshold, cells, % of GDP):", extra={"summary": True})
+    log.info("\n" + tabulate(df_floor, headers=["< threshold", "cells", "% of GDP"], tablefmt="github", showindex=False, floatfmt=(".0e", ",.0f", ".2e")), extra={"summary": True})
+
+def _safe_replace(src: Path, dst: Path, retries: int = 10, delay: float = 0.5) -> None:
+    """Rename/overwrite that tolerates transient Windows locks (antivirus, indexer, Explorer)."""
+    for attempt in range(retries):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay)
+
+def update_GIS_parameters(varname: str, source: str, version: str, SSP_base:str, base_year: int, data_dir:Path, glob_pattern:str, band:int=1, log: logging.Logger=local_log) -> Path:
     """
     Add CRS and geotransform information to a TIFF file based on WGS84 LatLong specifications.
 
@@ -1466,14 +1548,15 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
     with open("downscaling/settings_data_locations.json", "r") as f:
         data_files = json.load(f)
     data_files = apply_root_json(data_files, data_files["data_root"])
-    data_processed = data_files["grid"]["processed"]
+    #data_processed = data_files["grid"]["processed"]
+    data_run = data_files["grid"]["run"]
 
+    output_tiff_dir = Path(f"{data_run[f'dir_population_{source}_{version}_run']}/{SSP_base}")
+    output_tiff_dir.mkdir(parents=True, exist_ok=True)
     match varname:
         case "Population":
             match source:
                 case "2UP":
-                    output_tiff_dir = Path(data_processed["dir_population_processed"]) / "2UP" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
                     log.info(f"Updating GIS meta data for files in {data_dir} to {output_tiff_dir}")
@@ -1509,8 +1592,8 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                             dst.write(data, band)
                 case "Wang":
                     # see https://zenodo.org/records/7898409
-                    output_tiff_dir = Path(data_processed["dir_population_processed"]) / "Wang" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_population_Wang"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1536,8 +1619,8 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                         else:
                             log.info(f"Input and output paths are the same: {input_tiff_path}, skipping copy and update.")
                 case "Zhuang":
-                    output_tiff_dir = Path(data_processed["dir_population_processed"]) / "Zhuang" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_population_Zhuang"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1605,8 +1688,8 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                             with rasterio.open(output_tiff_path, "w", **kwargs) as dst:
                                 dst.write(reprojected_population, 1)
                 case "Murakami":
-                    output_tiff_dir = Path(data_processed["dir_population_processed"]) / "Murakami" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_population_Murakami"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1620,8 +1703,8 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                         else:
                             log.info(f"Input and output paths are the same: {input_tiff_path}, skipping copy and update.")
                 case "COMPASS":
-                    output_tiff_dir = Path(data_processed["dir_population_processed"]) / "COMPASS" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_population_COMPASS"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1646,14 +1729,16 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                             year = src.stem.split("_")[2]  # thrid element
                             new_name = f"Population_count_{year}_6min_SSP2_not_harm.tif"
                             src.replace(file_path_dest / new_name)
+                    _clamp_low_values(output_tiff_dir, min_valid=1, fill=0.0, log=log)
+                    base_year_file = output_tiff_dir / f"Population_count_{base_year}_6min_SSP2_not_harm.tif"
+                    _log_low_value_distribution(base_year_file, band=band, log=log)
                 case _:
                     log.info(f"Error: No update parameters are given for updating source {source}, exiting")
         case "GDP|PPP":
             match source:
                 case "Wang":
-                    #output_tiff_dir = f"{data_processed["dir_gdp_ppp_processed"]}/Wang/processed_{version}/{SSP_base}"
-                    output_tiff_dir = Path(data_processed["dir_gdp_ppp_processed"]) / "Wang" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_gdp_ppp_Wang"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1671,10 +1756,9 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                             with rasterio.open(output_tiff_path, "w", **profile) as dst:
                                 dst.write(data, band)
                 case "Murakami":
-                    #output_tiff_dir = f"{data_processed["dir_gdp_ppp_processed"]}/Murakami/processed_{version}/{SSP_base}"
-                    output_tiff_dir = Path(data_processed["dir_gdp_ppp_processed"]) / "Murakami" / f"processed_{version}" / SSP_base
-                    if not output_tiff_dir.exists():
-                        output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    # https://figshare.com/articles/dataset/Gridded_GDP_projections_compatible_with_the_five_SSPs_Shared_Socioeconomic_Pathways_/12016506?file=22078776
+                    #output_tiff_dir = Path(data_run["dir_gdp_ppp_Murakami"]) / f"processed_{version}" / SSP_base:
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1682,21 +1766,21 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                         input_tiff_path = data_dir / f.name
                         output_tiff_path = output_tiff_dir / f.name
 
-                        # Update metadata in the new file
+                        # Update metadata in the new file: rewrite it with CRS EPSG:4326
                         if input_tiff_path != output_tiff_path:
-                            shutil.copy(input_tiff_path, output_tiff_path)
-                            with rasterio.open(output_tiff_path, "r") as src:
+                            with rasterio.open(input_tiff_path, "r") as src:
                                 data = src.read(band)
                                 profile = src.profile.copy()
-                                profile["crs"] = CRS.from_epsg(4326)  # Add here
-                            Path(output_tiff_path).unlink(missing_ok=True)
-                            with rasterio.open(output_tiff_path, "w", **profile) as dst:
+                            profile["crs"] = CRS.from_epsg(4326)
+                            tmp_path = output_tiff_path.with_name(f"{output_tiff_path.stem}.tmp.tif")
+                            with rasterio.open(tmp_path, "w", **profile) as dst:
                                 dst.write(data, band)
+                            _safe_replace(tmp_path, output_tiff_path)   # atomic overwrite, no delete-then-create-same-name race
                         else:
                             log.info(f"Input and output paths are the same: {input_tiff_path}, skipping copy and update.")
                 case "COMPASS":
-                    output_tiff_dir = Path(data_processed["dir_gdp_ppp_processed"]) / "COMPASS" / f"processed_{version}" / SSP_base
-                    output_tiff_dir.mkdir(parents=True, exist_ok=True)
+                    #output_tiff_dir = Path(data_run["dir_gdp_ppp_COMPASS"]) / f"processed_{version}" / SSP_base
+                    #output_tiff_dir.mkdir(parents=True, exist_ok=True)
                     files = sorted(data_dir.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")
 
@@ -1712,16 +1796,22 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base, dat
                     file_path_src = data_dir
                     file_path_dest = output_tiff_dir
                     for src in file_path_src.glob("*.tif"):
-                        if "ssp" not in src.name:
+                        if "ssp" not in src.name.lower():
                             shutil.copy2(src, file_path_dest / src.name)
                     log.info(f"Error: No update parameters are given for updating source {source}, exiting")
 
-                    # rename the historic file to have similar format as the future files (with SSP2_not_harm in the name)
-                    for src in file_path_dest.glob("*.tif"):
-                        if "ssp" not in src.name:
-                            year = src.stem.split("_")[1]  # second element
+                    # rename the historic file to match the future-file format (GDP_<year>_6min_SSP2_not_harm.tif)
+                    for src in list(file_path_dest.glob("*.tif")):   # list() closes the directory scan before renaming
+                        if "ssp" not in src.name.lower():             # case-insensitive, so "SSP2" names are excluded too
+                            year = src.stem.split("_")[1]             # second element
                             new_name = f"GDP_{year}_6min_SSP2_not_harm.tif"
-                            src.replace(file_path_dest / new_name)
+                            if src.name != new_name:                  # nothing to do if it is already named correctly
+                                #src.replace(file_path_dest / new_name)
+                                _safe_replace(src, file_path_dest / new_name)
+                    _clamp_low_values(output_tiff_dir, min_valid=1, fill=0.0, log=log)
+                     # diagnostic: report the low-end GDP distribution the downscaling will use
+                    base_year_file = output_tiff_dir / f"GDP_{base_year}_6min_SSP2_not_harm.tif"
+                    _log_low_value_distribution(base_year_file, band=band, log=log)
         case _:
             log.info(f"Error: No update parameters are given for updating variable {varname}, exiting")
             output_tiff_dir = Path(".")
@@ -1788,7 +1878,7 @@ def compute_annual_emissions(ds):
 
     return da_annual
 
-def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", version:str="GHSL_2024_M3", SSP_base:str="SSP2", copy=False, log: logging.Logger=local_log):
+def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", version:str="GHSL_2024_M3", SSP_base:str="SSP2", base_year: int=2020, log: logging.Logger=local_log):
 
     #-------------------------------------------------------------------------------------------------------------------
     log.info("\n\n********************************PROCESS DATA****************************************************************************")
@@ -1798,8 +1888,7 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
     log.info("************************************************************************************************************")
     log.info("************************************************************************************************************")
 
-    (data_dir_original, rxr_filename, end_filename, glob_pattern, search_pattern, test_filename_original, mult_factor) = get_parameters_SE(process_data=True, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
-    (data_dir_run, dummy1, dummy2,dummy3, dummy4, test_filename_run, mult_factor) = get_parameters_SE(process_data=False, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
+    (data_dir_original, dummy1, glob_pattern, dummy3, test_filename_original) = get_parameters_SE(process_data=True, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
 
     log.info(f"\n\n------------check_values_tiff (before update)----------------------------------------------------------------------------")
     log.info(f"{PRINT_COLORS["green"]}Original data directory: {data_dir_original}{PRINT_COLORS["end"]}")
@@ -1808,43 +1897,45 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
     check_values_tiff(test_file_path_original, band=1, inlc_inf=False, log=log)
 
     # 1 process SE data
-    if "processed" in data_dir_original.parts:
-        response = input(f"{PRINT_COLORS['yellow']}The directory '{data_dir_original}' contains 'processed'. Do you want switch 'process data' off? (y/n): {PRINT_COLORS['end']}")
-        if response.lower() in ["y", "yes"]:
-            process_data = False
-            log.info(f"{PRINT_COLORS['yellow']}Switching 'process_data' to False since 'processed' is in the data directory.{PRINT_COLORS['end']}")
+    # if "processed" in data_dir_original.parts:
+    #     response = input(f"{PRINT_COLORS['yellow']}The directory '{data_dir_original}' contains 'processed'. Do you want switch 'process data' off? (y/n): {PRINT_COLORS['end']}")
+    #     if response.lower() in ["y", "yes"]:
+    #         process_data = False
+    #         log.info(f"{PRINT_COLORS['yellow']}Switching 'process_data' to False since 'processed' is in the data directory.{PRINT_COLORS['end']}")
 
     # 2 read SE data
-    data_dir_processed = update_GIS_parameters(varname, source, version, SSP_base, data_dir_original, glob_pattern, 1, log)
-    log.info(f"{PRINT_COLORS["green"]}Updated data directory: {data_dir_processed}{PRINT_COLORS["end"]}")
+    data_dir_run = update_GIS_parameters(varname, source, version, SSP_base, base_year, data_dir_original, glob_pattern, 1, log)
+    log.info(f"{PRINT_COLORS["green"]}Run data directory: {data_dir_run}{PRINT_COLORS["end"]}")
     log.info(f"\n\n------------check_values_tiff (after update)----------------------------------------------------------------------------")
-    test_file_path_update = data_dir_processed / test_filename_run
+    (dummy1,      dummy2, glob_pattern, dummy4, test_filename_run) = get_parameters_SE(process_data=False, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
+    test_file_path_update = data_dir_run / test_filename_run
     log.info(f"Checking info updated file: {test_file_path_update}")
     check_values_tiff(test_file_path_update, band=1, inlc_inf=False, log=log)
 
     # 3. Copy processed data to run directory
-    if copy:
-        log.info(f"\n\n------------copy processed data to run directory----------------------------------------------------------------------------")
-        if data_dir_run is None:
-            log.info(f"No run directory specified, skipping copy step.")
-        elif data_dir_run.resolve() == data_dir_processed.resolve():
-            log.info(f"Processed data directory is the same as run directory, so no copy needed.")
-        else:
-            data_dir_run.mkdir(parents=True, exist_ok=True)
-            files = sorted(data_dir_processed.glob("*"))
-            for f in tqdm.tqdm(files, desc="Copying processed data to run directory"):
-                if f.is_file():
-                    run_tiff_path = data_dir_run / f.name
-                    shutil.copy(f, run_tiff_path)
-                    log.info(f"Copied {f} to {run_tiff_path}")
+    # if copy:
+    #     log.info(f"\n\n------------copy processed data to run directory----------------------------------------------------------------------------")
+    #     if data_dir_run is None:
+    #         log.info(f"No run directory specified, skipping copy step.")
+    #     elif data_dir_run.resolve() == data_dir_processed.resolve():
+    #         log.info(f"Processed data directory is the same as run directory, so no copy needed.")
+    #     else:
+    #         data_dir_run.mkdir(parents=True, exist_ok=True)
+    #         files = sorted(data_dir_processed.glob("*"))
+    #         for f in tqdm.tqdm(files, desc="Copying processed data to run directory"):
+    #             if f.is_file():
+    #                 run_tiff_path = data_dir_run / f.name
+    #                 shutil.copy(f, run_tiff_path)
+    #                 log.info(f"Copied {f} to {run_tiff_path}")
 
     # 4. Summarize processed NetifftCDF files
-    if data_dir_processed != Path("."):
-        summary = summarize_processed_tiffs(data_dir_processed, log=log)
+    if data_dir_run != Path("."):
+        summary = summarize_processed_tiffs(data_dir_run, log=log)
         if summary:
             df_summary = pd.DataFrame(summary)
-            df_summary.to_csv(data_dir_processed / f"summary_{varname.replace("|", "_")}_{source}_{version}_{SSP_base}.csv", index=False)
-            log.info(f"Summary of processed data ({varname}, {source}, {version}, {SSP_base}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}")
+            df_summary.to_csv(data_dir_run / f"summary_{varname.replace("|", "_")}_{source}_{version}_{SSP_base}.csv", index=False)
+            log.info(f"{'*'*250}")
+            log.info(f"Summary of processed data ({varname}, {source}, {version}, {SSP_base}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}", extra={"summary": True})
 
 def _read_in_nc(data_dir_original_source:Path, glob_pattern:str, search_pattern:str, varname_source:str, varname_processed:str, log: logging.Logger):
     # read in nc files
@@ -1944,13 +2035,20 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
     data_files = apply_root_json(data_files, data_files["data_root"])
     data_dir_original = data_files["grid"]["original"]
     data_dir_run = data_files["grid"]["run"]
-    data_dir_processed = Path(data_files["grid"]["processed"]["dir_emissions_processed"])
+    #data_dir_processed = Path(data_files["grid"]["processed"]["dir_emissions_processed"])
     data_dir_run_source = None
     data_dir_original_source = None
-    data_dir_processed_source = None
+    #data_dir_processed_source = None
 
     df_total = pd.DataFrame()
     summary_data = {"Year": [], "Value": [], "Unit": []}
+
+    #data_dir_original_source = Path(data_dir_original["dir_emissions_EDGAR_2024_original"])
+    #data_dir_run_source = Path(data_dir_run["dir_emissions_EDGAR_2024_run"])
+    data_dir_original_source = Path(data_dir_original[f"dir_emissions_{source}_{version}_original"])
+    data_dir_run_source = Path(data_dir_run[f"dir_emissions_{source}_{version}_run"])
+    data_dir_run_source.mkdir(parents=True, exist_ok=True)
+
     match source:
         case "EDGAR":
             match version:
@@ -1959,10 +2057,9 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                     year_check = 2020
                     # ==> EDGAR data
                     # https://edgar.jrc.ec.europa.eu/dataset_ghg2024#p2
-                    data_dir_original_source = Path(data_dir_original["dir_emissions_EDGAR_2024_original"])
-                    data_dir_run_source = Path(data_dir_run["dir_emissions_EDGAR_2024_run"])
-                    data_dir_processed_source = data_dir_processed / source / version
-                    data_dir_processed_source.mkdir(parents=True, exist_ok=True)
+
+                    # data_dir_processed_source = data_dir_processed / source / version
+                    # data_dir_processed_source.mkdir(parents=True, exist_ok=True)
 
                     # read_CO2_grid_files (CO2 total, CO2 shipping, CO2 aviation as shiping and aviation are subtracted from total CO2)
                     # 1. Read in tiff files and create rioxarray
@@ -1971,7 +2068,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                     glob_pattern_CO2 = f"EDGAR_{version}_GHG_CO2_????_TOTALS_emi.nc"
                     search_pattern_CO2 = f"EDGAR_{version}_GHG_CO2_(\\d{{4}})_TOTALS_emi\\.nc"
                     xr_emissions_CO2 = _read_in_nc(data_dir_original_source, glob_pattern_CO2, search_pattern_CO2, varname_EDGAR, varname_CO2, log)
-                    xr_emissions_CO2.to_netcdf(data_dir_processed_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TOTALS_emi.nc")
+                    xr_emissions_CO2.to_netcdf(data_dir_run_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TOTALS_emi.nc")
 
                     # 1b. Total CO2 Shipping
                     # EDGAR_{version}_GHG_CO2_1970_TNR_Ship_emi.nc
@@ -1981,7 +2078,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                     # read in nc files
                     #warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
                     xr_emissions_CO2_shipping = _read_in_nc(data_dir_original_source, glob_pattern_CO2_shipping, search_pattern_CO2_shipping, varname_EDGAR, varname_CO2_shipping, log)
-                    xr_emissions_CO2_shipping.to_netcdf(data_dir_processed_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TNR_Ship_emi.nc")
+                    xr_emissions_CO2_shipping.to_netcdf(data_dir_run_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TNR_Ship_emi.nc")
 
                     # 1c.Total Aviation
                     # Aviation climbing&descent
@@ -2014,24 +2111,25 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                                                                 xr_emissions_CO2_aviation_LTO[varname_CO2_aviation_LTO] #+
                                                                 # data_emissions_CO2_aviation_SPS_rxr["emissions_CO2_aviation_SPS"] # exclude, as it only has data until 2003
                                                                 })
-                    xr_emissions_CO2_aviation.to_netcdf(data_dir_processed_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TNR_Aviation_emi.nc")
+                    xr_emissions_CO2_aviation.to_netcdf(data_dir_run_source / f"EDGAR_{version}_GHG_CO2_1970_2020_TNR_Aviation_emi.nc")
                     xr_emissions_CO2_excl_bunkers = xr.Dataset({varname: xr_emissions_CO2[varname_CO2] - xr_emissions_CO2_shipping[varname_CO2_shipping] - xr_emissions_CO2_aviation[varname_CO2_aviation]})
-                    xr_emissions_CO2_excl_bunkers.to_netcdf(data_dir_processed_source / f"EDGAR_{version}_GHG_CO2_1970_2020_excl_bunkers_emi.nc")
+                    xr_emissions_CO2_excl_bunkers.to_netcdf(data_dir_run_source / f"EDGAR_{version}_GHG_CO2_1970_2020_excl_bunkers_emi.nc")
 
                     # save processed data
                     filename_EM_EDGAR_processed = f"Emissions_CO2_Excl_shipping_aviation_AFOLU.nc"
-                    ds_file_path = data_dir_processed_source / filename_EM_EDGAR_processed
+                    ds_file_path = data_dir_run_source / filename_EM_EDGAR_processed
                     arc_seconds, arc_minutes, arc_degrees = calculate_resolution(xr_emissions_CO2_excl_bunkers[varname])
-                    log.info(f"Resolution of annual data: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
+                    log.info(f"{'*'*250}")
+                    log.info(f"Resolution of annual data ({filename_EM_EDGAR_processed}): {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees", extra={"summary": True})
                     xr_emissions_CO2_excl_bunkers.to_netcdf(ds_file_path)
 
         case "CEDS_CMIP7":
             match version:
                 case "2025_04_18":
-                    data_dir_original_source = Path(data_dir_original["dir_emissions_CEDS_CMIP7_original"])
-                    data_dir_run_source = Path(data_dir_run["dir_emissions_CEDS_CMIP7_v2025_run"])
-                    data_dir_processed_source = data_dir_processed / source / version
-                    data_dir_processed_source.mkdir(parents=True, exist_ok=True)
+                    # data_dir_original_source = Path(data_dir_original["dir_emissions_CEDS_CMIP7_original"])
+                    # data_dir_run_source = Path(data_dir_run["dir_emissions_CEDS_CMIP7_v2025_run"])
+                    # data_dir_processed_source = data_dir_processed / source / version
+                    # data_dir_processed_source.mkdir(parents=True, exist_ok=True)
 
                     # calc total CO2 excl bunkers
                     # 0: Agriculture; 1: Energy; 2: Industrial; 3: Transportation; 4: Residential, Commercial, Other; 5: Solvents production and application; 6: Waste; 7: International Shipping
@@ -2067,42 +2165,43 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
                             da_annual_excl_bunkers = da_annual_excl_bunkers / 1000
                             da_annual_excl_bunkers.attrs["unit"] = "tonnes CO2/year"
                             da_annual_excl_bunkers = da_annual_excl_bunkers.expand_dims(time=[pd.Timestamp(f"{year}")])
-                            da_file_path = data_dir_processed_source / f"CO2-em-anthro_annual_excl_bunkers_{year:}.nc"
+                            da_file_path = data_dir_run_source / f"CO2-em-anthro_annual_excl_bunkers_{year:}.nc"
                             arc_seconds, arc_minutes, arc_degrees = calculate_resolution(da_annual_excl_bunkers)
-                            print(f"Resolution of annual data: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
+                            print(f"Resolution of annual data ({varname}): {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.2f} arc degrees")
                             da_annual_excl_bunkers.to_netcdf(da_file_path)
 
                             df_total = pd.DataFrame(summary_data)
                             if not df_total.empty:
-                                df_file_path = data_dir_processed_source / f"annual_emissions_excl_bunkers_summary.csv"
+                                df_file_path = data_dir_run_source / f"annual_emissions_excl_bunkers_summary.csv"
                                 df_total.to_csv(df_file_path, sep=";", index=False)
                                 print(df_total.to_string(index=False))
                         else:
                             print(f"Skipping {file.name}: no year found in filename")
 
     # 3. Copy processed data to run directory
-    if copy:
-        log.info(f"\n\n------------copy processed data to run directory----------------------------------------------------------------------------")
-        if data_dir_run_source is None:
-            log.info(f"No run directory specified, skipping copy step.")
-        elif data_dir_run_source.resolve() == data_dir_processed_source.resolve():
-            log.info(f"Processed data directory is the same as run directory, so no copy needed.")
-        else:
-            data_dir_run_source.mkdir(parents=True, exist_ok=True)
-            files = sorted(data_dir_processed_source.glob("*"))
-            for f in tqdm.tqdm(files, desc="Copying processed data to run directory"):
-                if f.is_file():
-                    run_tiff_path = data_dir_run_source / f.name
-                    shutil.copy(f, run_tiff_path)
-                    log.info(f"Copied {f} to {run_tiff_path}")
+    # if copy:
+    #     log.info(f"\n\n------------copy processed data to run directory----------------------------------------------------------------------------")
+    #     if data_dir_run_source is None:
+    #         log.info(f"No run directory specified, skipping copy step.")
+    #     # elif data_dir_run_source.resolve() == data_dir_processed_source.resolve():
+    #     #     log.info(f"Processed data directory is the same as run directory, so no copy needed.")
+    #     else:
+    #         data_dir_run_source.mkdir(parents=True, exist_ok=True)
+    #         files = sorted(data_dir_processed_source.glob("*"))
+    #         for f in tqdm.tqdm(files, desc="Copying processed data to run directory"):
+    #             if f.is_file():
+    #                 run_tiff_path = data_dir_run_source / f.name
+    #                 shutil.copy(f, run_tiff_path)
+    #                 log.info(f"Copied {f} to {run_tiff_path}")
 
     # 4. Summarize processed NetCDF files
-    if data_dir_processed_source is not None:
-        summary = _summarize_processed_netcdf(data_dir_processed_source, varname=varname, log=log)
+    if data_dir_run_source is not None:
+        summary = _summarize_processed_netcdf(data_dir_run_source, varname=varname, log=log)
         if summary:
             df_summary = pd.DataFrame(summary)
-            df_summary.to_csv(data_dir_processed_source / f"summary_{varname.replace("|", "_")}_{source}_{version}.csv", sep=";", index=False)
-            log.info(f"Summary of processed data ({varname}, {source}, {version}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}")
+            df_summary.to_csv(data_dir_run_source / f"summary_{varname.replace("|", "_")}_{source}_{version}.csv", sep=";", index=False)
+            log.info(f"{'*'*250}")
+            log.info(f"Summary of processed data ({varname}, {source}, {version}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}", extra={"summary": True})
 
 def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2",
                                          coarse_factor:float=1, unit:str="", save: bool=False, check: bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path]:
@@ -2134,9 +2233,7 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     # 1. Read population data
     # retrieve parameters
     nodata=np.nan
-    (data_dir, rxr_filename, end_filename,
-     glob_pattern, search_pattern,
-     test_filename, factor) = get_parameters_SE(process_data=False, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
+    (data_dir, rxr_filename, glob_pattern, search_pattern, test_filename) = get_parameters_SE(process_data=False, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
 
     # Check population data for the year 2020
     log.info(f"\n\n************before coarsening***************************************************************************")
@@ -2268,6 +2365,7 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
             match version:
                 case "2024":
                     data_dir_EM = Path(data_run["dir_emissions_EDGAR_2024_run"])
+                    data_dir_EM.mkdir(parents=True, exist_ok=True)
                     ds_emissions_CO2_excl_bunkers = xr.open_dataset(data_dir_EM / f"Emissions_CO2_Excl_shipping_aviation_AFOLU.nc", chunks={"x": "auto", "y": "auto"})
 
                     # change georeferencing of dataset
@@ -2320,11 +2418,10 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                 case "2025_04_18":
                     year_check = 2020
                     data_dir_EM = Path(data_run["dir_emissions_CEDS_CMIP7_v2025_run"])
+                    data_dir_EM.mkdir(parents=True, exist_ok=True)
                     rxr_filepath = Path(".")
-                    #rxr_filepath = f"{data_dir_EM}/CO2-em-anthro_annual_excl_bunkers_2020.nc"
                     glob_pattern = f"CO2-em-anthro_annual_excl_bunkers_????.nc"
                     search_pattern = f"CO2-em-anthro_annual_excl_bunkers_(\\d{{4}}).nc"
-
 
                     files = sorted(data_dir_EM.glob(glob_pattern))
                     log.info(f"Found {len(files)} files matching {glob_pattern}")

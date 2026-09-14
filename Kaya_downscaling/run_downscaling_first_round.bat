@@ -1,10 +1,12 @@
+REM TO DO: make possible to choose between create raster file and run downscaling population or emissions (including scenarios and net/gross emissions) and plot results. Also add option to run sensitivities.
 @echo off
+REM set profile=%1
 
 REM **********************************************
 REM CREATE REGION RASTER FILE
 REM **********************************************
-REM pixi run python main.py --create_GADM_raster --model IMAGE_ScenarioMIP --resolution 6.00
-REM pixi run python main.py --create_GADM_raster --model REMIND_ScenarioMIP --resolution 6.00
+REM pixi run python main.py --create_GADM_raster --model IMAGE --resolution 6.00
+REM pixi run python main.py --create_GADM_raster --model IMAGE --resolution 0.50
 
 REM **********************************************
 REM INPUT PROFILE
@@ -15,31 +17,18 @@ REM 'Third round' (2UP, Murakami, CEDS_CMIP7)
 REM 'Fourth round' (Zhuang, Murakami, CEDS_CMIP7)
 REM 'Fifth round' (COMPASS, COMPASS, CEDS_CMIP7)
 
-@echo off
-REM **********************************************
-REM PROCESS GRID DATA
-REM **********************************************
+REM NET EMISSIONS
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions net
 
-REM pixi run python main.py --process_grid_data_source --driver Emissions    --source EDGAR       --version 2024
-REM pixi run python main.py --process_grid_data_source --driver Emissions    --source CEDS_CMIP7  --version 2025_04_18
+REM GROSS EMISSIONS
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile %profile% --emissions gross
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile %profile% --emissions gross
 
-REM pixi run python main.py --process_grid_data_source --driver Population   --source 2UP         --version GHSL_2024_M3      --ssp_baseline SSP2
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source Murakami    --version version_2021_1    --ssp_baseline SSP2
-REM pixi run python main.py --process_grid_data_source --driver Population   --source Zhuang      --version version_1         --ssp_baseline SSP2
-REM pixi run python main.py --process_grid_data_source --driver Population   --source COMPASS     --version version_2         --ssp_baseline SSP2
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source COMPASS     --version version_2         --ssp_baseline SSP2
-
-REM pixi run python main.py --process_grid_data_source --driver Population   --source 2UP         --version GHSL_2024_M3      --ssp_baseline SSP1
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source Murakami    --version version_2021_1    --ssp_baseline SSP1
-REM pixi run python main.py --process_grid_data_source --driver Population   --source Zhuang      --version version_1         --ssp_baseline SSP1
-REM pixi run python main.py --process_grid_data_source --driver Population   --source COMPASS     --version version_2         --ssp_baseline SSP1
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source COMPASS     --version version_2         --ssp_baseline SSP1
-
-REM pixi run python main.py --process_grid_data_source --driver Population   --source 2UP         --version GHSL_2024_M3      --ssp_baseline SSP3
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source Murakami    --version version_2021_1    --ssp_baseline SSP3
-REM pixi run python main.py --process_grid_data_source --driver Population   --source Zhuang      --version version_1         --ssp_baseline SSP3
-REM pixi run python main.py --process_grid_data_source --driver Population   --source COMPASS     --version version_2         --ssp_baseline SSP3
-REM pixi run python main.py --process_grid_data_source --driver GDP_PPP      --source COMPASS     --version version_2         --ssp_baseline SSP3
+REM pixi run python main.py --process_grid_data_profile --profile second_round --ssp_baseline SSP1
+REM pixi run python main.py --process_grid_data_profile --profile third_round --ssp_baseline SSP1
+REM pixi run python main.py --process_grid_data_profile --profile fourth_round --ssp_baseline SSP1
+REM pixi run python main.py --process_grid_data_profile --profile fifth_round --ssp_baseline SSP1
 
 @echo on
 REM **********************************************************************************************************************************
@@ -47,11 +36,16 @@ REM **********************************************
 REM DOWNSCALE EMISSIONS
 REM **********************************************
 
-REM NET EMISSIONS
+REM Create grid data
+REM SSP2
+REM pixi run python main.py --process_grid_data --profile second_round --ssp_baseline SSP2
+REM pixi run python main.py --process_grid_data --profile third_round --ssp_baseline SSP2
+REM pixi run python main.py --process_grid_data --profile fourth_round --ssp_baseline SSP2
+REM pixi run python main.py --process_grid_data --profile fifth_round --ssp_baseline SSP2
 
 REM Second round (2UP, Murakami, EDGAR)
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2.xlsx" --model IMAGE --profile second_round --emissions net
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2.xlsx" --model IMAGE --profile second_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
+REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
 
 REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile second_round --emissions net
 REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile second_round --emissions net
@@ -77,10 +71,18 @@ REM pixi run python main.py --downscale_emissions --scenario ELV-SSP2-1150F --mo
 REM pixi run python main.py --plot --scenario ELV-SSP2-CP --model IMAGE --profile fifth_round --emissions net
 REM pixi run python main.py --plot --scenario ELV-SSP2-1150F --model IMAGE --profile fifth_round --emissions net
 
-REM GROSS EMISSIONS
-REM pixi run python main.py --downscale_emissions --scenario IMAGE3.4_Medium_SSP2 --model IMAGE_ScenarioMIP --profile %profile% --emissions gross
-REM pixi run python main.py --downscale_emissions --scenario IMAGE3.4_Low_SSP2 --model IMAGE_ScenarioMIP --profile %profile% --emissions gross
+@echo off
+REM **********************************************
+REM DOWNSCALE_POPULATION
+REM **********************************************
 
+REM pixi run python main.py --downscale_population --scenario ELV-SSP2-CP --model IMAGE --profile third_round
+REM pixi run python main.py --downscale_population --scenario ELV-SSP2-1150F --model IMAGE --profile third_round
+
+REM **********************************************
+REM DOWNSCALE_GDP_PPP
+REM **********************************************
+REM pixi run python main.py --downscale_gdp_ppp --scenario ELV-SSP2-CP --model IMAGE --profile third_round
 
 @echo on
 REM **********************************************
