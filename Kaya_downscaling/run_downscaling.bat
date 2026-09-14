@@ -7,6 +7,26 @@ REM pixi run python main.py --create_GADM_raster --model IMAGE_ScenarioMIP --res
 REM pixi run python main.py --create_GADM_raster --model REMIND_ScenarioMIP --resolution 6.00
 
 REM **********************************************
+REM DOWNLOAD SCENARIOMIP DATA
+REM **********************************************
+
+REM pre: - account on IIASA database is needed
+REM      - ixmp4 login <username>
+REM      - give password
+REM      - see: https://pyam-iamc.readthedocs.io/en/stable/api/iiasa.html
+REM The <model_name> should be replaced with the actual model name, e.g., IMAGE_ScenarioMIP, REMIND_ScenarioMIP, etc.
+
+REM Retrieve country and regions for R10 grouping from the IAMC common.yaml file and GADM level-0 country names
+REM For each ScenarioMIP model used, copy country/region files from 'data/input/Models/' to 'data/input/Models/<model_name>/' as
+REM - <model_name>_country_to_regions.csv
+REM - <model_name>_region_numbers.csv
+REM pixi run python -m downscaling.download_ScenarioMIP --download_IAMC_region_R10
+
+REM Copy result to data/processed/models/<model_name>/ into the appropriate SSP directories.
+REM pixi run python -m downscaling.download_ScenarioMIP --download_emissions --model IMAGE_ScenarioMIP
+REM pixi run python -m downscaling.download_ScenarioMIP --download_emissions --model REMIND_ScenarioMIP
+
+REM **********************************************
 REM INPUT PROFILE
 REM **********************************************
 REM 'First round' (2UP, Wang, EDGAR)
