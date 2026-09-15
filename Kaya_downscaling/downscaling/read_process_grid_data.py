@@ -40,7 +40,7 @@ import rioxarray as rxr
 from pathlib import Path
 
 import tqdm
-from downscaling.settings_downscaling import SSP_base
+#from downscaling.settings_downscaling import SSP_base
 from tools.functions_logging import init_logging
 from tools.general_functions import PRINT_COLORS, apply_root_json
 from .settings_downscaling_cities import NL_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam
@@ -366,7 +366,7 @@ def calculate_resolution(da: xr.DataArray, log: logging.Logger=local_log) -> tup
 
     return arc_seconds, arc_minutes, arc_degrees
 
-def print_transform(transform):
+def print_transform(transform, log: logging.Logger=local_log) -> list:
     list_info = []
     list_info.append(f"Affine Transform:")
     list_info.append(f"|{transform.a:.4f}, {transform.b:.4f}, {transform.c:.4f}|")
@@ -486,7 +486,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
         # set_chunks_method is "optimal" or "auto"
         # save_type is "netcdf" or "zar", "both" or "none"
 
-        current_dir = Path().cwd()
+        current_dir = Path.cwd()
         log.info(f"Current directory: {current_dir}")
         aggregation_method = aggregation_methods.get(varname, "")
 
@@ -536,14 +536,14 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     # You need to update the affine transform after coarsening so the pixel size matches the new resolution.
                     old_transform = ds_rxr.rio.transform()
                     log.info("Old transform:")
-                    info = print_transform(ds_rxr.rio.transform())
+                    info = print_transform(ds_rxr.rio.transform(), log)
                     log.info(info)
                     new_transform = Affine(old_transform.a * factor_int, old_transform.b, old_transform.c,
                                         old_transform.d, old_transform.e * factor_int, old_transform.f)
                     ds_coarsened = ds_coarsened.rio.write_transform(new_transform)
                     log.info(f"Factor: {factor_int}")
                     log.info("New transform:")
-                    info = print_transform(ds_coarsened.rio.transform())
+                    info = print_transform(ds_coarsened.rio.transform(), log)
                     log.info(info)
                 else: # factor is float
                     # Use reproject() for non-integer factors (e.g., 1.2, 2.5, etc.)
@@ -614,7 +614,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     # Transform is already set by reproject - just log it
                     log.info(f"3. Transform (automatically set by reproject)")
                     log.info("New transform:")
-                    info = print_transform(ds_coarsened.rio.transform())
+                    info = print_transform(ds_coarsened.rio.transform(), log)
                     log.info(info)
             elif 0 < factor < 1: # upsampling
                 log.info(f"Factor < 1: Upsampling by factor {factor}")
@@ -649,7 +649,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                 # 3. Transform is already set by reproject - just log it
                 log.info(f"3. Transform (automatically set by reproject)")
                 log.info("New transform:")
-                info = print_transform(ds_coarsened.rio.transform())
+                info = print_transform(ds_coarsened.rio.transform(), log)
                 log.info(info)
             else:
                 raise ValueError(f"Invalid factor: {factor}. Factor must be > 0.")
@@ -733,7 +733,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     # ADD VERIFICATION HERE - Check what we're about to save
                     log.info(f"\t=== PRE-SAVE VERIFICATION ===")
                     log.info(f"\tCRS before save: {ds_coarsened_netcdf[varname].rio.crs}")
-                    info = print_transform(ds_coarsened_netcdf.rio.transform())
+                    info = print_transform(ds_coarsened_netcdf.rio.transform(), log)
                     log.info(info)
                     log.info(f"\tNoData before save: {ds_coarsened_netcdf[varname].rio.nodata}")
                     log.info(f"\tHas spatial_ref: {'spatial_ref' in ds_coarsened_netcdf.coords}")
@@ -813,7 +813,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     log.info(f"\t=== saved data ===")
                     ds_verify = xr.open_dataset(filepath, decode_coords="all")
                     log.info(f"\tCRS after reload: {ds_verify.rio.crs}")
-                    info = print_transform(ds_verify.rio.transform())
+                    info = print_transform(ds_verify.rio.transform(), log)
                     log.info(info)
                     log.info(f"\tNoData from rio.nodata: {ds_verify[varname].rio.nodata}") # netcdf does not store rio.nodata
                     log.info(f"\tNoData from attrs: {ds_verify.attrs.get("source_nodata", None)}")
@@ -824,7 +824,7 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     # VERIFICATION of returned dataset
                     log.info(f"\t=== returned data ===")
                     log.info(f"\tCRS of returned dataset: {ds_coarsened[varname].rio.crs}")
-                    info = print_transform(ds_coarsened.rio.transform())
+                    info = print_transform(ds_coarsened.rio.transform(), log)
                     log.info(info)
                     log.info(f"\tNoData of returned dataset from rio.nodata: {ds_coarsened[varname].rio.nodata}")
                     log.info(f"\tNoData from attrs: {ds_coarsened_netcdf.attrs.get("source_nodata", None)}")
@@ -864,7 +864,7 @@ def count_values_rio_xarray(ds:xr.Dataset, varname:str, year: int, log:logging.L
     stats_data.append(['NaN', nan_count, f"{nan_count/num_cells*100:.2f}%"])
     # Count unexpected nodata value
     nodata_value = ds.attrs.get("source_nodata", None)
-    print(f"{PRINT_COLORS["yellow"]}Check for counting values, source_nodata value from attributes: {nodata_value}{PRINT_COLORS["end"]}")
+    print(f"{PRINT_COLORS["yellow"]}Check source_nodata value for counting values from attributes: {nodata_value}{PRINT_COLORS["end"]}")
     nodata_value_count = (data == nodata_value).sum()
     stats_data.append([f'Nodata', nodata_value_count, f"{nodata_value_count/num_cells*100:.2f}%"])
 
@@ -1551,7 +1551,13 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base:str,
     #data_processed = data_files["grid"]["processed"]
     data_run = data_files["grid"]["run"]
 
-    output_tiff_dir = Path(f"{data_run[f'dir_population_{source}_{version}_run']}/{SSP_base}")
+    if varname == "Population":
+        output_tiff_dir = Path(f"{data_run[f'dir_population_{source}_{version}_run']}/{SSP_base}")
+    elif varname == "GDP|PPP":
+        output_tiff_dir = Path(f"{data_run[f'dir_gdp_ppp_{source}_{version}_run']}/{SSP_base}")
+    else:
+        log.info(f"Error: Unknown variable name {varname}, exiting")
+        exit()
     output_tiff_dir.mkdir(parents=True, exist_ok=True)
     match varname:
         case "Population":
@@ -1888,6 +1894,7 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
     log.info("************************************************************************************************************")
     log.info("************************************************************************************************************")
 
+    # 1. get parameters for the original data
     (data_dir_original, dummy1, glob_pattern, dummy3, test_filename_original) = get_parameters_SE(process_data=True, varname=varname, source=source, version=version, SSP_base=SSP_base, log=log)
 
     log.info(f"\n\n------------check_values_tiff (before update)----------------------------------------------------------------------------")
@@ -1895,13 +1902,6 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
     test_file_path_original = data_dir_original / test_filename_original
     log.info(f"Checking info original file: {test_file_path_original}")
     check_values_tiff(test_file_path_original, band=1, inlc_inf=False, log=log)
-
-    # 1 process SE data
-    # if "processed" in data_dir_original.parts:
-    #     response = input(f"{PRINT_COLORS['yellow']}The directory '{data_dir_original}' contains 'processed'. Do you want switch 'process data' off? (y/n): {PRINT_COLORS['end']}")
-    #     if response.lower() in ["y", "yes"]:
-    #         process_data = False
-    #         log.info(f"{PRINT_COLORS['yellow']}Switching 'process_data' to False since 'processed' is in the data directory.{PRINT_COLORS['end']}")
 
     # 2 read SE data
     data_dir_run = update_GIS_parameters(varname, source, version, SSP_base, base_year, data_dir_original, glob_pattern, 1, log)
@@ -1912,23 +1912,7 @@ def pre_process_data_socioeconomic(varname:str="Population", source:str="2UP", v
     log.info(f"Checking info updated file: {test_file_path_update}")
     check_values_tiff(test_file_path_update, band=1, inlc_inf=False, log=log)
 
-    # 3. Copy processed data to run directory
-    # if copy:
-    #     log.info(f"\n\n------------copy processed data to run directory----------------------------------------------------------------------------")
-    #     if data_dir_run is None:
-    #         log.info(f"No run directory specified, skipping copy step.")
-    #     elif data_dir_run.resolve() == data_dir_processed.resolve():
-    #         log.info(f"Processed data directory is the same as run directory, so no copy needed.")
-    #     else:
-    #         data_dir_run.mkdir(parents=True, exist_ok=True)
-    #         files = sorted(data_dir_processed.glob("*"))
-    #         for f in tqdm.tqdm(files, desc="Copying processed data to run directory"):
-    #             if f.is_file():
-    #                 run_tiff_path = data_dir_run / f.name
-    #                 shutil.copy(f, run_tiff_path)
-    #                 log.info(f"Copied {f} to {run_tiff_path}")
-
-    # 4. Summarize processed NetifftCDF files
+    # 3. Summarize processed NetCDF files
     if data_dir_run != Path("."):
         summary = summarize_processed_tiffs(data_dir_run, log=log)
         if summary:
@@ -2203,7 +2187,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
             log.info(f"{'*'*250}")
             log.info(f"Summary of processed data ({varname}, {source}, {version}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}", extra={"summary": True})
 
-def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2",
+def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2", base_year:int=2020,
                                          coarse_factor:float=1, unit:str="", save: bool=False, check: bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path]:
     '''
     Read in grid data files for population, GDP, and CO2 emissions
@@ -2216,8 +2200,8 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     Filename_population, filename_GDP, filename_CO2
     '''
 
-    year_check = 2020
-    base_year = 2015
+    year_check = base_year
+    #base_year = 2015
 
     #-------------------------------------------------------------------------------------------------------------------
     log.info("\n\n*************************************RUN socio-economice DATA*********************************************************")
@@ -2255,7 +2239,7 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     arc_seconds, arc_minutes, arc_degrees = calculate_resolution(rxr_SE[varname])
     log.info(f"{PRINT_COLORS["yellow"]}Before coarsening: resolution {varname} grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees{PRINT_COLORS["end"]}")
 
-    info = print_transform(rxr_SE.rio.transform())
+    info = print_transform(rxr_SE.rio.transform(), log)
     log.info(f"transform: {PRINT_COLORS["yellow"]}{info}{PRINT_COLORS["end"]}")
     log.info(f"{varname} data:{rxr_SE}")
     da = rxr_SE[varname].isel(time=0)
@@ -2293,7 +2277,7 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     log.info(f"After coarsening:")
     log.info(f"attrs nodata (stored, not used): {PRINT_COLORS["yellow"]}{rxr_SE_coarsened.attrs.get("source_nodata", None)}{PRINT_COLORS["end"]}")
     log.info(f"crs: {PRINT_COLORS["yellow"]}{rxr_SE_coarsened.rio.crs}{PRINT_COLORS["end"]}")
-    info = print_transform(rxr_SE_coarsened.rio.transform())
+    info = print_transform(rxr_SE_coarsened.rio.transform(), log)
     log.info(f"transform: {PRINT_COLORS["yellow"]}{info}{PRINT_COLORS["end"]}")
 
     #da = rxr_SE_coarsened[varname].isel(time=0)
@@ -2358,7 +2342,7 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
     match source:
         case "EDGAR":
             varname_EDGAR = "emissions"
-            year_check = 2020
+            year_check = base_year
             # ==> EDGAR data
             # https://edgar.jrc.ec.europa.eu/dataset_ghg2024#p2
             #data_dir_EM = f"{project_dir}/data/input/emissions/{source}/{version}/emissions_grid"
@@ -2384,12 +2368,12 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                     log.info(f"rio nodata: {PRINT_COLORS["yellow"]}{ds_emissions_CO2_excl_bunkers[varname].rio.nodata}{PRINT_COLORS["end"]}")
                     log.info(f"_FillValue: {PRINT_COLORS["yellow"]}{ds_emissions_CO2_excl_bunkers[varname].encoding.get("_FillValue")}{PRINT_COLORS["end"]}")
                     log.info(f"crs: {PRINT_COLORS["yellow"]}{ds_emissions_CO2_excl_bunkers.rio.crs}{PRINT_COLORS["end"]}")
-                    info = print_transform(ds_emissions_CO2_excl_bunkers.rio.transform())
+                    info = print_transform(ds_emissions_CO2_excl_bunkers.rio.transform(), log)
                     log.info(f"transform: {PRINT_COLORS["yellow"]}{info}{PRINT_COLORS["end"]}")
 
                     if check:
                         # count number of cells for the year 2020: total, zero, positive, negative and nan values
-                        log.info(f"\n\n------------check_values_rio_xarray before coarsening--------------------------------------------------------------------")
+                        log.info(f"\n\n------------check_values_rio_xarray before coarsening--({varname}, {source}, {version})----------------------------------")
                         count_values_rio_xarray(ds_emissions_CO2_excl_bunkers, varname, year=year_check, log=log)
                         calc_total_sum_rio_xarray(ds_emissions_CO2_excl_bunkers[varname], year=year_check, log=log)
 
@@ -2409,15 +2393,15 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                     ds_emissions_CO2_excl_bunkers_coarsened[varname].attrs["unit"] = unit
                     if check:
                         # count number of cells for the year 2020: total, zero, positive, negative and nan values
-                        log.info(f"\n\n------------check_values_rio_xarray after coarsening--------------------------------------------------------------------")
+                        log.info(f"\n\n------------check_values_rio_xarray after coarsening--({varname}, {source}, {version})----------------------------------")
                         if ds_emissions_CO2_excl_bunkers_coarsened is not None:
                             count_values_rio_xarray(ds_emissions_CO2_excl_bunkers_coarsened, varname, year=year_check, log=log)
                             calc_total_sum_rio_xarray(ds_emissions_CO2_excl_bunkers_coarsened[varname], year=year_check, log=log)
         case "CEDS_CMIP7":
             match version:
                 case "2025_04_18":
-                    year_check = 2020
-                    data_dir_EM = Path(data_run["dir_emissions_CEDS_CMIP7_v2025_run"])
+                    year_check = base_year
+                    data_dir_EM = Path(data_run["dir_emissions_CEDS_CMIP7_2025_04_18_run"])
                     data_dir_EM.mkdir(parents=True, exist_ok=True)
                     rxr_filepath = Path(".")
                     glob_pattern = f"CO2-em-anthro_annual_excl_bunkers_????.nc"
@@ -2448,25 +2432,6 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
             rxr_filepath = Path(".")
 
     return ds_emissions_CO2_excl_bunkers_coarsened, rxr_filepath
-
-def read_processed_grid_data(data_dir: Path, file: Optional[Path], varname: str,
-                             SSP_base: str, source: str, version: str, coarse_factor: int|float) -> xr.Dataset | None:
-
-        # check files
-        varname_read = varname.replace("|", "_")
-        print(f"Checking input files in read_processed_IPAT_grid_data for {varname_read}...")
-        if file is None:
-            file = data_dir / f"{varname_read}_{source}_{version}_{SSP_base}_cf_{coarse_factor}.nc"
-            if not file.exists():
-                raise FileNotFoundError(f"{varname_read} file not found: {file}")
-        print(f"Using file: {file}")
-
-        # read in data if not already read in
-        print(f"Reading {varname_read} data from file...")
-        with xr.open_dataset(file, decode_coords="all") as rxr_IPAT_factor:
-            print(f"Type: {type(rxr_IPAT_factor)}")
-
-        return rxr_IPAT_factor
 
 def main():
     pass

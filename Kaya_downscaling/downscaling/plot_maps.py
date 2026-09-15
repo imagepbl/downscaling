@@ -25,6 +25,32 @@ from tools.general_functions import replace_punctuation_in_filenames
 import downscaling.read_process_IAM_data as process_IAM_data
 import downscaling.process_IPAT_factors as process_IPAT_factors
 
+from pathlib import Path
+import numpy as np
+import rasterio
+
+def check_geotiff(tif_file: Path) -> None:
+    print(f"\nChecking GeoTIFF: {tif_file}")
+    with rasterio.open(tif_file) as src:
+        print("driver:", src.driver, "| size (w x h):", src.width, "x", src.height)
+        print("bands:", src.count, "| dtype:", src.dtypes, "| nodata:", src.nodata)
+        print("crs:", src.crs)
+        print("transform:", src.transform)
+        print("compression:", src.profile.get("compress"), "| predictor:", src.profile.get("predictor"))
+
+        n_valid, n_nonfinite, vmin, vmax = 0, 0, np.inf, -np.inf
+        for _, window in src.block_windows(1):  # one 256x256 tile at a time
+            block = src.read(1, window=window)
+            finite = np.isfinite(block)
+            n_valid += int(finite.sum())
+            n_nonfinite += int((~finite).sum())
+            if finite.any():
+                vmin = min(vmin, float(block[finite].min()))
+                vmax = max(vmax, float(block[finite].max()))
+
+        print(f"valid pixels: {n_valid} | non-finite (NaN/inf): {n_nonfinite}")
+        print(f"value range: {vmin} .. {vmax}")
+
 def plot_tiff(tiff_file:Path) -> None:
 
     with rasterio.open(tiff_file) as src:
@@ -61,7 +87,7 @@ def save_to_grid_tiff(dir_processed:Path,
                       add_text: str,
                       years:list,
                       model:str, scenario:str,
-                      include_model_in_filename:bool=True) -> None:
+                      include_model_in_filename:bool=True) -> Path:
 
     ys = xr_grid["y"].values
     xs = xr_grid["x"].values
@@ -106,6 +132,9 @@ def save_to_grid_tiff(dir_processed:Path,
                 tiled=True,   # Better for large files
                 blockxsize=256, blockysize=256) as dst: dst.write(data, 1)
 
+    check_geotiff(tif_file)
+
+    return tif_file
 
 def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", resolution_minutes: float = 0.5) -> None:
     """
@@ -461,7 +490,7 @@ def plot_urban_emissions_per_region(project_dir:Path, df_urban_emissions:pd.Data
     # It would create boxplots of the percentage of emissions in urban areas per region, for each year.
     pass
 
-def plot_factors_GDP_POP(project_dir:Path, ds_population:None|xr.Dataset, ds_gdp_ppp:None|xr.Dataset, ds_gdp_per_pop:None|xr.Dataset,
+def plot_factors_GDP_POP(save_dir:Path, source_pop:None|str, version_pop:None|str, source_gdp_ppp:None|str, version_gdp_ppp:None|str, ds_population:None|xr.Dataset, ds_gdp_ppp:None|xr.Dataset, ds_gdp_per_pop:None|xr.Dataset,
                          year:int=2020, coarsen:int=10):
 
     names = []
@@ -469,17 +498,17 @@ def plot_factors_GDP_POP(project_dir:Path, ds_population:None|xr.Dataset, ds_gdp
     xr_datasets = []
     if not ds_population is None:
         da_population_2020 = ds_population['Population'].sel(time=2020)
-        names.append("ds_POP_2UP_GHSL_M3_2020")
+        names.append(f"ds_POP_{source_pop}_{version_pop}_2020")
         varnames.append("Population")
         xr_datasets.append(ds_population.sel(time=year))
     if not ds_gdp_ppp is None:
         da_gdp_ppp_2020 = ds_gdp_ppp['GDP|PPP'].sel(time=2020)
-        names.append("ds_GDP_PPP_Wang_v7_2020")
+        names.append(f"ds_GDP_PPP_{source_gdp_ppp}_{version_gdp_ppp}_2020")
         varnames.append("GDP|PPP")
         xr_datasets.append(ds_gdp_ppp.sel(time=year))
     if not ds_gdp_per_pop is None:
         da_gdp_per_pop_2020 = ds_gdp_per_pop.sel(time=2020)
-        names.append("ds_GDP_PPP_Wang_v7_2UP_GHSL_M3_2020")
+        names.append(f"ds_GDP_PPP_{source_gdp_ppp}_{version_gdp_ppp}/{source_pop}_{version_pop}_2020")
         varnames.append("GDP|PPP per capita")
         xr_datasets.append(ds_gdp_per_pop.sel(time=year))
 
@@ -499,10 +528,11 @@ def plot_factors_GDP_POP(project_dir:Path, ds_population:None|xr.Dataset, ds_gdp
         print(f"da.encoding _FillValue: {da.encoding.get('_FillValue')}")
         print(f"da.attr _FillValue{da.attrs.get('_FillValue')}")
         ax_map = fig.add_subplot(gs[i], projection=ccrs.Mercator())
-        plot_Mercator_projection_update(da, ax=ax_map, coarsen=coarsen, transform="log", title=f"{da.name}",
+        plot_Mercator_projection(da, ax=ax_map, coarsen=coarsen, transform="log", title=f"{da.name}",
                                  cbar_shrink=0.6, cbar_aspect=20, cbar_pad=0.1)
-    plt.show()
-    fig_path = project_dir / "figures" / f"pop_gdp_ppp_grid_cf_{coarsen}.png"
+    fig_dir = save_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    fig_path = fig_dir / f"pop_gdp_ppp_grid_cf_{coarsen}.png"
     plt.savefig(fig_path, dpi=300, bbox_inches="tight")
 
 def plot_Mercator_projection(da, *, ax=None, coarsen=12, transform="linear", show=False, title=None,

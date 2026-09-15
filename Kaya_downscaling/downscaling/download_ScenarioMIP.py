@@ -17,18 +17,40 @@ import ixmp4
 
 import geopandas as gpd
 
+from downscaling.IAM_spatial_model_maps import read_GADM_vector
 from tools.general_functions import PRINT_COLORS, apply_root_json
 
-groupings = {"R5", "R9", "R10"}
+IAMC_region_groups = {"R5", "R9", "R10"}
+
+PLATFORM = "scenariomip-cmip7"
+REGIONS_IAMC = ["R10AFRICA", "R10CHINA+", "R10EUROPE", "R10INDIA+", "R10LATIN_AM", "R10MIDDLE_EAST", "R10NORTH_AM", "R10PAC_OECD", "R10REF_ECON", "R10REST_ASIA", "World"]
+REGIONS_ScenarioMIP = ["Africa (R10)", "China+ (R10)", "Europe (R10)", "India+ (R10)", "Latin America (R10)", "Middle East (R10)", "North America (R10)", "Pacific OECD (R10)", "Reforming Economies (R10)", "Rest of Asia (R10)", "World"]
+IAMC_TO_SCENARIOMIP = dict(zip(REGIONS_IAMC, REGIONS_ScenarioMIP))
+VARIABLES = ["Emissions|CO2",
+            "Emissions|CO2|Energy|Supply", "Emissions|CO2|Energy|Demand",
+            "Emissions|CO2|Energy|Demand|Industry", "Emissions|CO2|Energy|Demand|Transportation", "Emissions|CO2|Energy|Demand|Residential and Commercial", "Emissions|CO2|Energy|Demand|Other Sector",
+            "Emissions|CO2|Energy|Demand|Bunkers|International Aviation", "Emissions|CO2|Energy|Demand|Bunkers|International Shipping", "Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation",
+            "Emissions|CO2|Industrial Processes",
+            "Emissions|CO2|AFOLU",
+            "Gross Emissions|CO2|Energy|Supply", "Gross Emissions|CO2|Energy|Demand", "Gross Emissions|CO2|Energy|Demand|Industry",
+            "Population", "GDP|PPP"]
+MODEL_NAMES = {"IMAGE 3.4": "IMAGE_ScenarioMIP",
+               "REMIND-MAgPIE 3.5-4.11": "REMIND_ScenarioMIP",
+               "GCAM 8s": "GCAM_ScenarioMIP",
+               "WITCH 6.0": "WITCH_ScenarioMIP",
+               "COFFEE 1.6": "COFFEE_ScenarioMIP",
+               "MESSAGEix-GLOBIOM-GAINS 2.1-M-R12": "MESSAGE_ScenarioMIP",
+               "AIM 3.0": "AIM_ScenarioMIP"}
+ScenarioMIP_scenarios = ["High", "High-to-Low", "Medium", "Medium-to-Low", "Low", "Very Low", "Low-to-Negative"]
 
 #-------------------------------------------------------------------------------------------------------------------------
 # CREATE IAMC region dataframes from the common.yaml file and GADM level-0 country names
 #-------------------------------------------------------------------------------------------------------------------------
 
-# In the repo file, 'common', 'R5', 'R9' and 'R10' are top-level siblings in a
+# In the repo file, "common", "R5", "R9" and "R10" are top-level siblings in a
 # YAML list. This finder yields the wanted groups whether they sit at the top
-# level or nested inside a 'common' wrapper (and tolerates a dict top level).
-def _iter_region_groups(node, wanted=groupings):
+# level or nested inside a "common" wrapper (and tolerates a dict top level).
+def _iter_region_groups(node, wanted=IAMC_region_groups):
     items = node if isinstance(node, list) else [node]
     for entry in items:
         if not isinstance(entry, dict):
@@ -37,27 +59,29 @@ def _iter_region_groups(node, wanted=groupings):
             if name in wanted and isinstance(body, list):
                 yield name, body
             elif name == "common" and isinstance(body, list):
-                yield from _iter_region_groups(body, wanted=groupings)
+                yield from _iter_region_groups(body, wanted=IAMC_region_groups)
 
 def _norm(name):
-    """Accent-, case- and punctuation-insensitive key for name matching."""
+    """Accent-, case- and punctuation-insensitive key for name matchin`g."""
     s = unicodedata.normalize("NFKD", str(name))
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r"\(.*?\)", "", s.casefold())   # drop "(Dutch part)" etc.
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s)).strip()
 
 def download_IAMC_regions():
-
+    # TO DO --> create iso_to_id_mapping instead of reading it from a file created with create_GADM_raster.py
     project_dir = Path.cwd()
-    print(f"{PRINT_COLORS['green']}Project directory: {project_dir}{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS["green"]}Project directory: {project_dir}{PRINT_COLORS["end"]}")
     regions_dir = project_dir / "data"/ "processed" / "models"
     regions_dir.mkdir(parents=True, exist_ok=True)
-    GADM_dir = project_dir / "data" / "processed" / "GADM"
+    GADM_dir_input = project_dir / "data" / "input" / "GADM"
+    GADM_dir_output = project_dir / "data" / "processed" / "GADM"
 
     # --- 1. Region YAML (local copy) ---------------------------------------------
+    # https://github.com/IAMconsortium/common-definitions/blob/main/definitions/region/common.yaml
     dir_common = project_dir / "data" / "input" / "models"
     path_common_yaml = dir_common / "common.yaml"
-    print(f"{PRINT_COLORS['green']}Reading IAMC region YAML from {path_common_yaml}{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS["green"]}Reading IAMC region YAML from {path_common_yaml}{PRINT_COLORS["end"]}")
     data = yaml.safe_load(path_common_yaml.read_text(encoding="utf-8"))
 
     # --- 2. GADM level 0: country name + code, no geometry (fast) ----------------
@@ -67,7 +91,7 @@ def download_IAMC_regions():
     data_files = apply_root_json(data_files, data_files["data_root"])
     dir_GADM_geopackage = Path(data_files["GADM"]["dir_GADM_geopackage"])
     gadm_gpkg_path = dir_GADM_geopackage / "gadm_410-levels.gpkg"
-    print(f"{PRINT_COLORS['green']}Reading GADM level-0 countries from {gadm_gpkg_path}{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS["green"]}Reading GADM level-0 countries from {gadm_gpkg_path}{PRINT_COLORS["end"]}")
     adm0 = gpd.read_file(gadm_gpkg_path, layer="ADM_0", ignore_geometry=True)  # cols: GID_0, COUNTRY
     adm0 = adm0[~adm0["GID_0"].str.startswith("Z0")]   # drop regions with Z0<number>
     # add North Macedonia (ISO "MKD"), Hong Kong (ISO "HKG", and Macao (ISO "MAC") if that ISO is not included
@@ -78,7 +102,7 @@ def download_IAMC_regions():
     if "MAC" not in adm0["GID_0"].values:
         adm0 = pd.concat([adm0, pd.DataFrame({"GID_0": ["MAC"], "COUNTRY": ["Macao"]})], ignore_index=True)
 
-    # YAML name -> GADM COUNTRY name, only where normalisation alone won't bridge it.
+    # YAML name -> GADM COUNTRY name, only where normalisation alone won"t bridge it.
     # (Cabo Verde, Czechia, Timor-Leste, Palestine, Micronesia etc. match directly.)
     ALIAS = {
         "Russian Federation": "Russia", "Viet Nam": "Vietnam", "Brunei Darussalam": "Brunei",
@@ -87,8 +111,8 @@ def download_IAMC_regions():
         "Sint Maarten (Dutch part)": "Sint Maarten",
     }
 
-    # --- 3. Flatten the R5/R9/R10 groupings into (Country name, Region code) rows -
-    print(f"{PRINT_COLORS['green']}Building IAMC region dataframe{PRINT_COLORS['end']}")
+    # --- 3. Flatten the R5/R9/R10 IAMC_region_groups into (Country name, Region code) rows -
+    print(f"{PRINT_COLORS["green"]}Building IAMC region dataframe{PRINT_COLORS["end"]}")
     code_keys = ("navigate", "ar6")
 
     # Create a list of records for each region
@@ -108,8 +132,10 @@ def download_IAMC_regions():
     # Save the region numbers to CSV files
     df_region_numbers = pd.DataFrame(region_records)
     for category, group in df_region_numbers.groupby("category"):
-        # remove 'region' ending with 'OWO' if it exists
+        # remove "region" ending with "OWO" if it exists
         group = group[~group["region"].str.endswith("OWO")]
+        if category == "R10":
+            group["region"] = group["region"].map(IAMC_TO_SCENARIOMIP)
         region_numbers_path = regions_dir / f"IAMC_region_numbers_{category}.csv"
         region_numbers_path.parent.mkdir(parents=True, exist_ok=True)
         group[["region", "number"]].to_csv(region_numbers_path, index=False, sep=";")
@@ -119,10 +145,16 @@ def download_IAMC_regions():
                         f"(top-level items: {[list(e)[0] for e in data if isinstance(e, dict)]}).")
 
     df_IAMC_regions = pd.DataFrame(records)
+    lst_region_codes = sorted(df_IAMC_regions["Region code"].unique())
+    lst_region_codes_R10 = [code for code in lst_region_codes if code.startswith("R10")]
+    missing_codes = set(lst_region_codes_R10) - set(REGIONS_IAMC)
+    extra_codes = set(REGIONS_IAMC) - set(lst_region_codes_R10) - {"World"}
+    print("Extra codes in REGIONS_IAMC, but not in YAML:", sorted(extra_codes))
+    print("R10 codes in YAML, but not in REGIONS_IAMC:", sorted(missing_codes))
     print("Distinct region codes:", sorted(df_IAMC_regions["Region code"].unique()))
 
     # --- 4. Attach ISO3 (= GADM GID_0) via the normalised key --------------------
-    print(f"{PRINT_COLORS['green']}Mapping IAMC region countries to GADM ISO3 codes{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS["green"]}Mapping IAMC region countries to GADM ISO3 codes{PRINT_COLORS["end"]}")
     # a. Alias + normalise the IAMC names into a match key
     df_IAMC_regions["match_key"] = df_IAMC_regions["Country name"].replace(ALIAS).map(_norm)
     # b. Normalise the GADM names into the same key, keep one row per key
@@ -143,30 +175,35 @@ def download_IAMC_regions():
     # -- 5. Write the IAMC region dataframe to CSV ---------------------------------
     df_IAMC_regions = df_IAMC_regions[["ISO3", "Country name", "Region code"]]
     country_regions_path = regions_dir / "IAMC_country_to_regions.csv"
-    print(f"{PRINT_COLORS['green']}Writing IAMC region dataframe to {country_regions_path}{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS["green"]}Writing IAMC region dataframe to {country_regions_path}{PRINT_COLORS["end"]}")
     df_IAMC_regions.to_csv(country_regions_path, index=False, sep=";")
-    print(f"{len(df_IAMC_regions)} rows, {df_IAMC_regions['ISO3'].notna().sum()} with an ISO3 code")
+    print(f"{len(df_IAMC_regions)} rows, {df_IAMC_regions["ISO3"].notna().sum()} with an ISO3 code")
 
     # split into separate files for R5, R9, R10
-    for group in groupings:
+    for group in IAMC_region_groups:
         group_path = regions_dir / f"IAMC_country_to_regions_{group}.csv"
         df_group = df_IAMC_regions[df_IAMC_regions["Region code"].str.startswith(group)]
+        if group == "R10":
+            df_group["Region code"] = df_group["Region code"].map(IAMC_TO_SCENARIOMIP)
         df_group.to_csv(group_path, index=False, sep=";")
 
         # compare to iso_to_id_mapping to check for missing ISO3 codes
-        iso_to_id_mapping_path = GADM_dir / "iso_to_id_mapping.csv"
-        iso_to_id_mapping = pd.read_csv(iso_to_id_mapping_path, sep=";")
-        missing_iso3 = set(iso_to_id_mapping["ISO"]) - set(df_group["ISO3"].dropna())
+        # TO DO --> create iso_to_id_mapping instead of reading it from a file created with create_GADM_raster.py
+        # iso_to_id_mapping_path = GADM_dir / "iso_to_id_mapping.csv"
+        # iso_to_id_mapping = pd.read_csv(iso_to_id_mapping_path, sep=";")
+        _, df_iso_to_id, _ = read_GADM_vector(GADM_dir_input, GADM_dir_output)
+
+        missing_iso3 = set(df_iso_to_id["ISO"]) - set(df_group["ISO3"].dropna())
 
         # convert to dataframe and merge with iso_to_id_mapping to get GID_0
         missing_iso3 = pd.DataFrame({"ISO": list(missing_iso3)})
-        missing_iso3 = pd.merge(missing_iso3, iso_to_id_mapping, left_on="ISO", right_on="ISO", how="left")
+        missing_iso3 = pd.merge(missing_iso3, df_iso_to_id, left_on="ISO", right_on="ISO", how="left")
         if not missing_iso3.empty:
-            print(f"{PRINT_COLORS['red']}Warning: {len(missing_iso3)} ISO3 codes in iso_to_id_mapping.csv, but not found in {group}:{PRINT_COLORS['end']}")
+            print(f"{PRINT_COLORS["red"]}Warning: {len(missing_iso3)} ISO3 codes in iso_to_id_mapping.csv, but not found in {group}:{PRINT_COLORS["end"]}")
             print(", ".join(sorted(missing_iso3["ISO"].dropna().astype(str))))
             print(", ".join(sorted(missing_iso3["NAME"].dropna().astype(str))))
         else:
-            print(f"{PRINT_COLORS['yellow']}No missing ISO3 codes in {group}{PRINT_COLORS['end']}")
+            print(f"{PRINT_COLORS["yellow"]}No missing ISO3 codes in {group}{PRINT_COLORS["end"]}")
 
         # save to csv
         missing_iso3_path = regions_dir / f"missing_iso3_{group}.csv"
@@ -194,13 +231,17 @@ def load_emissions(platform_name, regions, variables, models):
         variables = discover_emission_variables(platform_name)
     platform = ixmp4.Platform(platform_name)
 
+    print(f"{PRINT_COLORS["green"]}REGIONS: {", ".join(regions)}{PRINT_COLORS["end"]}")
+    print(f"{PRINT_COLORS["green"]}VARIABLES: {", ".join(variables)}{PRINT_COLORS["end"]}")
+    print(f"{PRINT_COLORS["green"]}MODELS: {", ".join(models)}{PRINT_COLORS["end"]}")
+
     frames = []
     for run in platform.runs.list():
         model_name = _label(run.model)
         if models is not None and not any(model_name.startswith(m) for m in models):
             continue
         print(f"pulling {model_name} / {_label(run.scenario)}", flush=True)
-        data = run.iamc.tabulate(region=REGIONS, variable=VARIABLES)
+        data = run.iamc.tabulate(region=REGIONS_ScenarioMIP, variable=VARIABLES)
         if "region" in data.columns:
             data = data[data["region"].isin(regions)]
         if "variable" in data.columns:
@@ -217,28 +258,41 @@ def load_emissions(platform_name, regions, variables, models):
 
     return df
 
-def download_ScenarioMIP_emissions(data_dir,ScenarioMIP_scenarios, PLATFORM, REGIONS, VARIABLES, MODELS):
+def download_emissions(model:str):
     """Download ScenarioMIP emissions data from the ixmp4 platform and save to CSV."""
 
-    file = "scenariomip_emissions.csv"
+    project_dir = Path.cwd()
+    data_dir = project_dir / "data" / "processed" / "models"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    map_models = {v: k for k, v in MODEL_NAMES.items()}
+    model_ScenarioMIP = map_models[model]
+    MODELS = [model_ScenarioMIP]
+
+    file = f"scenariomip_emissions_{model}.csv"
     file_path = data_dir / file
     data_dir_scenarios = data_dir / "outxlsx"
     data_dir_scenarios.mkdir(parents=True, exist_ok=True)
 
-    df_pyam = load_emissions(PLATFORM, REGIONS, VARIABLES, MODELS)
+    # check regions
+    platform = ixmp4.Platform(PLATFORM)
+    run = next(r for r in platform.runs.list() if _label(r.model).startswith("IMAGE"))
+    sample = run.iamc.tabulate(variable=["Emissions|CO2"])
+    print(sorted(sample["region"].unique()))
+
+    df_pyam = load_emissions(PLATFORM, REGIONS_ScenarioMIP, VARIABLES, MODELS)
     print(df_pyam.head(5))
 
     df = df_pyam.data
     df["scenario"] = df["scenario"].str.replace(" (Marker)", "")  # remove SSP number from scenario name
-    # df["scenario"] = df["scenario"].str.replace("-", "_")  # remove SSP number from scenario name
-    # df["scenario"] = df["scenario"].str.replace(" ", "")  # remove SSP number from scenario name
     df.to_csv(file_path, index=False, sep=";")           # long format, no index column
     print(f"ScenarioMIP emissions data saved to {file_path}")
 
     # create empty dataframe with columns to store model and scenario combinations
-    df_model_scenario_combinations = pd.DataFrame(columns=['model', 'scenario', 'baseline'])
+    df_model_scenario_combinations = pd.DataFrame(columns=["model", "scenario", "baseline"])
 
-    scenarios = df['scenario'].unique()
+    # create empty dataframe to store scenarios present in the data
+    scenarios = df["scenario"].unique()
     scenarios_present = pd.DataFrame(columns=["scenario"])
     for model in MODELS:
         for scenario in scenarios:
@@ -248,26 +302,29 @@ def download_ScenarioMIP_emissions(data_dir,ScenarioMIP_scenarios, PLATFORM, REG
                 scenario_base, ssp = match.group(1), match.group(2)
             else:
                 scenario_base, ssp = scenario, None
-            if scenario_base not in scenarios_present['scenario'].values:
+            if scenario_base not in scenarios_present["scenario"].values:
                 scenarios_present = pd.concat([scenarios_present, pd.DataFrame([[scenario_base]], columns=["scenario"])])
             df_model_scenario_combinations.loc[len(df_model_scenario_combinations)] = [model, scenario_base, ssp]
             #print(f"\nSaving data for model: {model}, scenario: {scenario}")
 
-            mask_model_scenario = (df['model'] == model) & (df['scenario'] == scenario)
-            df_model_scenario = df[mask_model_scenario]
+            mask_model_scenario = (df["model"] == model) & (df["scenario"] == scenario)
+            df_model_scenario = df[mask_model_scenario].copy()
             if len(df_model_scenario) == 0:
                 print(f"No data found for model: {model}, scenario: {scenario}")
             else:
                 # check which variables from VARIABLES are not present in the data for this model and scenario
-                missing_variables = [var for var in VARIABLES if var not in df_model_scenario['variable'].unique()]
+                missing_variables = [var for var in VARIABLES if var not in df_model_scenario["variable"].unique()]
                 if missing_variables:
                     print(f"Missing variables for model: {model}, scenario: {scenario}: {missing_variables}")
                 # save to excel file in data sheet
-                df_model_scenario.to_excel(data_dir_scenarios / f"{model}_{scenario}.xlsx", index=False)
+                df_model_scenario["model"] = df_model_scenario["model"].map(MODEL_NAMES)
+                df_model_scenario.columns = [col.capitalize() for col in df_model_scenario.columns]
+                df_model_scenario = df_model_scenario.pivot(index=["Model", "Scenario", "Region", "Variable", "Unit"], columns="Year", values="Value").reset_index()
+                df_model_scenario.to_excel(data_dir_scenarios / f"{model}_{scenario}.xlsx", index=False, sheet_name="data")
 
-    print(tabulate(df_model_scenario_combinations, headers='keys', tablefmt='psql', showindex=False))
+    print(tabulate(df_model_scenario_combinations, headers="keys", tablefmt="psql", showindex=False))
 
-    print(f"\nScenarios present in the data: {list(scenarios_present['scenario'])}")
+    print(f"\nScenarios present in the data: {list(scenarios_present["scenario"])}")
     print(f"\nScenarios in the ScenarioMIP list: {ScenarioMIP_scenarios}")
     set_scenarios_present = list(scenarios_present["scenario"])
     missing_scenarios = [s for s in ScenarioMIP_scenarios if s not in set_scenarios_present]
@@ -278,19 +335,6 @@ def download_ScenarioMIP_emissions(data_dir,ScenarioMIP_scenarios, PLATFORM, REG
 
 if __name__ == "__main__":
 
-    PLATFORM = "scenariomip-cmip7"
-    REGIONS = ["World"]
-    VARIABLES = ["Emissions|CO2",
-                "Emissions|CO2|Energy|Supply", "Emissions|CO2|Energy|Demand",
-                "Emissions|CO2|Energy|Demand|Industry", "Emissions|CO2|Energy|Demand|Transportation", "Emissions|CO2|Energy|Demand|Residential and Commercial", "Emissions|CO2|Energy|Demand|Other Sector",
-                "Emissions|CO2|Energy|Demand|Bunkers|International Aviation", "Emissions|CO2|Energy|Demand|Bunkers|International Shipping", "Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation",
-                "Emissions|CO2|Industrial Processes",
-                "Emissions|CO2|AFOLU",
-                "Gross Emissions|CO2|Energy|Supply", "Gross Emissions|CO2|Energy|Demand", "Gross Emissions|CO2|Energy|Demand|Industry",
-                "Population", "GDP|PPP"]
-    #MODELS = ["IMAGE 3.4", "REMIND-MAgPIE 3.5-4.11"]
-    ScenarioMIP_scenarios = ["High", "High-to-Low", "Medium", "Medium-to-Low", "Low", "Very Low", "Low-to-Negative"]
-
     parser = argparse.ArgumentParser(description="Download ScenarioMIP data") # add_help=True by default
     parser.add_argument("--download_emissions", action="store_true", help="Download ScenarioMIP emissions data")
     parser.add_argument("--model", type=str, help="model to download data for (e.g., IMAGE 3.4, REMIND-MAgPIE 3.5-4.11)")
@@ -298,35 +342,13 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     print(f"Arguments provided: {arguments}")
 
-
-    project_dir = Path.cwd()
-    data_dir = project_dir / "data" / "processed" / "models"
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    if hasattr(arguments, 'download_emissions') and arguments.download_emissions is True:
-        if arguments.profile is None:
+    if hasattr(arguments, "download_emissions") and arguments.download_emissions is True:
+        if arguments.model is None:
             raise ValueError("Please provide a model name using --model when downloading emissions data.")
-        match arguments.model:
-            case "IMAGE_ScenarioMIP":
-                MODELS = ["IMAGE 3.4"]
-            case "REMIND_ScenarioMIP":
-                MODELS = ["REMIND-MAgPIE 3.5-4.11"]
-            case "GCAM_ScenarioMIP":
-                MODELS = ["GCAM 8s"]
-            case "WITCH_ScenarioMIP":
-                MODELS = ["WITCH 6.0"]
-            case "COFFEE_ScenarioMIP":
-                MODELS = ["COFFEE 1.6"]
-            case "MESSAGE_ScenarioMIP":
-                MODELS = ["MESSAGEix-GLOBIOM-GAINS 2.1-M-R12"]
-            case "AIM_ScenarioMIP":
-                MODELS = ["AIM 3.0"]
-            case _:
-                raise ValueError(f"Unknown model: {arguments.model}. Please provide a valid model name (e.g., IMAGE 3.4, REMIND-MAgPIE 3.5-4.11).")
         MODELS = [arguments.model]
-        download_ScenarioMIP_emissions(data_dir, ScenarioMIP_scenarios, PLATFORM, REGIONS, VARIABLES, MODELS)
+        download_emissions(arguments.model)
 
-    if hasattr(arguments, 'download_IAMC_region_R10') and arguments.download_IAMC_region_R10 is True:
+    if hasattr(arguments, "download_IAMC_region_R10") and arguments.download_IAMC_region_R10 is True:
         download_IAMC_regions()
 
 

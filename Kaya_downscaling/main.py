@@ -17,6 +17,7 @@ import downscaling.downscaling as downscaling
 import downscaling.IAM_spatial_model_maps as IAM_maps
 import downscaling.read_process_grid_data as process_grid_data
 import downscaling.process_urban_grid_emissions as process_urban_grid_emissions
+import downscaling.download_ScenarioMIP as download_ScenarioMIP
 from tools.general_functions import PRINT_COLORS
 
 """
@@ -28,8 +29,6 @@ to the GDAL and PROJ data folders are then constructed relative to this root(`Li
 The environment variables `GDAL_DATA`, `PROJ_LIB`, and `PROJ_DATA` are set so that the underlying native libraries can locate their required resource files.
 In addition, `pyproj.datadir.set_data_dir` is used to explicitly direct PROJ tothe correct data directory at runtime.
 """
-
-
 
 def combine_emissions_output(folder: Path) -> pd.DataFrame:
 
@@ -62,60 +61,60 @@ def combine_emissions_output(folder: Path) -> pd.DataFrame:
 
     return combined
 
-def run_aggregration_to_urban(model: str, scenario: str, SSP_base: str = "SSP2", rounds: dict[str, str] | None = None):
-    '''
-    Run aggregation of emissions to urban level.
-    Rounds: directories as produced by downscale_emissions in downscaling.py
-            names are defined in settings_downscaling.py
-    Example:
-    rounds = {
-            "first_round": "2UP_GHSL_2024_M3_Wang_version_7_EDGAR_2024_net",
-            "second_round": "2UP_GHSL_2024_M3_Murakami_version_2021_1_EDGAR_2024_net",
-            "third_round": "2UP_GHSL_2024_M3_Murakami_version_2021_1_CEDS_CMIP7_2025_04_18_net",
-            "fourth_round": "Zhuang_version_1_Murakami_version_2021_1_CEDS_CMIP7_2025_04_18_net",
-            "fifth_round": "COMPASS_version_2_COMPASS_version_2_CEDS_CMIP7_2025_04_18_net"
-            }
-    '''
-    project_dir = Path(__file__).parent.resolve()
-    print(f"Project directory: {project_dir}")
+# def run_aggregration_to_urban(model: str, scenario: str, SSP_base: str = "SSP2", rounds: dict[str, str] | None = None):
+#     '''
+#     Run aggregation of emissions to urban level.
+#     Rounds: directories as produced by downscale_emissions in downscaling.py
+#             names are defined in settings_downscaling.py
+#     Example:
+#     rounds = {
+#             "first_round": "2UP_GHSL_2024_M3_Wang_version_7_EDGAR_2024_net",
+#             "second_round": "2UP_GHSL_2024_M3_Murakami_version_2021_1_EDGAR_2024_net",
+#             "third_round": "2UP_GHSL_2024_M3_Murakami_version_2021_1_CEDS_CMIP7_2025_04_18_net",
+#             "fourth_round": "Zhuang_version_1_Murakami_version_2021_1_CEDS_CMIP7_2025_04_18_net",
+#             "fifth_round": "COMPASS_version_2_COMPASS_version_2_CEDS_CMIP7_2025_04_18_net"
+#             }
+#     '''
+#     project_dir = Path(__file__).parent.resolve()
+#     print(f"Project directory: {project_dir}")
 
-    if rounds is None:
-        print(f"{PRINT_COLORS['yellow']}No rounds specified, using default rounds{PRINT_COLORS['end']}")
-    else:
-        # read in urban classification
-        dir_urban = project_dir / Path("data/processed/DLL")
-        print(f"{PRINT_COLORS["green"]}Reading urban classification data from: {dir_urban / 'urban_classification_years.parquet'}{PRINT_COLORS["end"]}")
-        path_urban = dir_urban / "urban_classification_years.parquet"
-        gdf_urban = gpd.read_parquet(path_urban)
+#     if rounds is None:
+#         print(f"{PRINT_COLORS['yellow']}No rounds specified, using default rounds{PRINT_COLORS['end']}")
+#     else:
+#         # read in urban classification
+#         dir_urban = project_dir / Path("data/processed/DLL")
+#         print(f"{PRINT_COLORS["green"]}Reading urban classification data from: {dir_urban / 'urban_classification_years.parquet'}{PRINT_COLORS["end"]}")
+#         path_urban = dir_urban / "urban_classification_years.parquet"
+#         gdf_urban = gpd.read_parquet(path_urban)
 
-        for i, r in enumerate(rounds.items()):
-            print(f"Processing {r[0]} ({i+1}/{len(rounds)})...")
-            # read in grid emissions
-            varname_EM = "Emissions_CO2_Excl_shipping_aviation_AFOLU"
-            file_EM = f"Emissions_CO2_Excl_shipping_aviation_AFOLU_harmonised_{SSP_base}.nc"
-            scenario_EM = f"{model}_{scenario}"
-            dir_processed = project_dir / Path("data/processed")
-            path_EM = dir_processed / r[1] / scenario_EM / file_EM
+#         for i, r in enumerate(rounds.items()):
+#             print(f"Processing {r[0]} ({i+1}/{len(rounds)})...")
+#             # read in grid emissions
+#             varname_EM = "Emissions_CO2_Excl_shipping_aviation_AFOLU"
+#             file_EM = f"Emissions_CO2_Excl_shipping_aviation_AFOLU_harmonised_{SSP_base}.nc"
+#             scenario_EM = f"{model}_{scenario}"
+#             dir_processed = project_dir / Path("data/processed")
+#             path_EM = dir_processed / r[1] / scenario_EM / file_EM
 
-            print(f"Reading emissions data from: {path_EM}")
-            xr_EM = xr.open_dataset(path_EM, engine="netcdf4")
-            print(f"{xr_EM[varname_EM].attrs['unit']}")
-            print(xr_EM)
+#             print(f"Reading emissions data from: {path_EM}")
+#             xr_EM = xr.open_dataset(path_EM, engine="netcdf4")
+#             print(f"{xr_EM[varname_EM].attrs['unit']}")
+#             print(xr_EM)
 
-            xr_em_urban, df_em_urban, df_em_rural = downscaling.aggregate_urban_emissions(xr_emissions=xr_EM, gdf_urban_classification=gdf_urban,
-                                                                             emissions_varname=varname_EM,
-                                                                             region_varname="region_number",
-                                                                             final_year=2050)
+#             xr_em_urban, df_em_urban, df_em_rural = downscaling.aggregate_urban_emissions(xr_emissions=xr_EM, gdf_urban_classification=gdf_urban,
+#                                                                              emissions_varname=varname_EM,
+#                                                                              region_varname="region_number",
+#                                                                              final_year=2050)
 
 
-            dir_urban_classification = project_dir / Path("data/output")
-            df_em_urban.to_csv(dir_urban_classification / f"Emissions_urban_classification_{scenario_EM}_{r[0]}.csv", index=False, sep=";")
-            df_em_rural.to_csv(dir_urban_classification / f"Emissions_rural_classification_{scenario_EM}_{r[0]}.csv", index=False, sep=";")
-            print(f"Saved aggregated emissions for {r[0]} to output directory.")
+#             dir_urban_classification = project_dir / Path("data/output")
+#             df_em_urban.to_csv(dir_urban_classification / f"Emissions_urban_classification_{scenario_EM}_{r[0]}.csv", index=False, sep=";")
+#             df_em_rural.to_csv(dir_urban_classification / f"Emissions_rural_classification_{scenario_EM}_{r[0]}.csv", index=False, sep=";")
+#             print(f"Saved aggregated emissions for {r[0]} to output directory.")
 
-            print(xr_em_urban)
-            print("-------------------------------------")
-            print(df_em_urban.head())
+#             print(xr_em_urban)
+#             print("-------------------------------------")
+#             print(df_em_urban.head())
 
 if __name__ == "__main__":
     '''
@@ -170,7 +169,6 @@ if __name__ == "__main__":
               }
 
     parser = argparse.ArgumentParser(description="Downscaling emissions to grid level") # add_help=True by default
-    #parser.add_argument("--process_grid_data", metavar="copy", choices=["copy", "no_copy"], help="process datasets and 'copy' to run folder or 'no_copy'")
     parser.add_argument("--process_grid_data_profile", action="store_true", help="process datasets based on profile")
     parser.add_argument("--process_grid_data_source", action="store_true", help="process datasets based on source")
     parser.add_argument("--process_urban_classification", action="store_true", help="process urban classification data")
@@ -182,7 +180,8 @@ if __name__ == "__main__":
     parser.add_argument("--create_GADM_raster", action="store_true", help="create GADM raster file for countries")
     parser.add_argument("--resolution", type=str, help="Resolution for GADM raster in minutes")
 
-    parser.add_argument("--plot", action="store_true", help="plot results")
+    parser.add_argument("--download_regions", action="store_true", help="Download regions from ScenarioMIP")
+    parser.add_argument("--download_emissions", action="store_true", help="Download emissions from ScenarioMIP for the specified model (IMAGE_ScenarioMIP or REMIND_ScenarioMIP)")
 
     parser.add_argument("--downscale_population", action="store_true", help="downscale population")
     parser.add_argument("--downscale_gdp_ppp", action="store_true", help="downscale GDP (PPP)")
@@ -194,6 +193,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--global_min", type=str, help="minimum for plot range emissions")
     parser.add_argument("--global_max", type=str, help="maximum for plot range emissions")
+
+    parser.add_argument("--plot", action="store_true", help="plot results")
 
     parser.add_argument("--upload", action="store_true", help="Upload results to Google Earth Engine")
 
@@ -220,6 +221,14 @@ if __name__ == "__main__":
         # 1. Pre-process population, GDP and emissions datasets
         downscaling.process_one_dataset(project_dir, arguments.driver.replace("_", "|"), arguments.source, arguments.version, arguments.ssp_baseline)
 
+    # ScenaroMIP data download
+    if hasattr(arguments, 'download_regions') and arguments.download_regions is True:
+        download_ScenarioMIP.download_IAMC_regions()
+    if hasattr(arguments, 'download_emissions') and arguments.download_emissions is True:
+        if arguments.model is None:
+            raise ValueError("Please provide a model name using --model when downloading emissions data.")
+        download_ScenarioMIP.download_emissions(arguments.model)
+
     # 2. Create raster for IMAGE regions based on GADM shapefile and IMAGE region numbers
     if hasattr(arguments, 'create_GADM_raster') and arguments.create_GADM_raster is True:
         if arguments.model is None or arguments.resolution is None:
@@ -227,27 +236,29 @@ if __name__ == "__main__":
         IAM_maps.create_GADM_region_raster(project_dir, arguments.model, float(arguments.resolution), True)
     # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
     if hasattr(arguments, 'process_urban_classification') and arguments.process_urban_classification is True:
-        process_urban_grid_emissions.process_urban_classification_data(Path(project_dir))
+        process_urban_grid_emissions.process_urban_classification_data(Path(project_dir), save_gdf=False, plot=False)
 
     # downscale population, GDP and emissions datasets
     if hasattr(arguments, 'downscale_population') and arguments.downscale_population is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
-        downscaling.downscale_SE_data(project_dir, "Population", arguments.scenario, arguments.model, False, arguments.profile)
+        downscaling.downscale_SE_data(project_dir, "Population", arguments.scenario, arguments.model, False, arguments.profile, arguments.ssp_baseline)
     if hasattr(arguments, 'downscale_gdp_ppp') and arguments.downscale_gdp_ppp is True:
         if arguments.scenario is None or arguments.profile is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
-        downscaling.downscale_SE_data(project_dir, "GDP|PPP", arguments.scenario, arguments.model, True, arguments.profile)
+        downscaling.downscale_SE_data(project_dir, "GDP|PPP", arguments.scenario, arguments.model, True, arguments.profile, arguments.ssp_baseline)
     if hasattr(arguments, 'downscale_emissions') and arguments.downscale_emissions is True:
-        if arguments.scenario is None or arguments.profile is None or arguments.emissions is None:
+        if arguments.scenario is None or arguments.profile is None or arguments.emissions is None or arguments.emissions is None:
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
+        if arguments.ssp_baseline is None:
+            parser.error("--downscale_emissions requires a SSP baseline scenario to be specified with --ssp_baseline")
         if arguments.emissions not in ["net", "gross"]:
             parser.error("--emissions requires a value of 'net' or 'gross'")
         elif arguments.emissions == "net":
             net_emissions = True
         else:
             net_emissions = False
-        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, net_emissions)
+        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, net_emissions)
 
     # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:
@@ -279,9 +290,9 @@ if __name__ == "__main__":
     if hasattr(arguments, 'compare') and arguments.compare is True:
         downscaling.compare_two_raster_files()
     # run urban aggregation
-    if hasattr(arguments, 'run_urban_aggregation') and arguments.run_urban_aggregation is True:
-        run_aggregration_to_urban(model=arguments.model, scenario="ELV-SSP2-CP", SSP_base="SSP2", rounds=rounds)
-        combine_emissions_output(project_dir / "data" / "output")
+    # if hasattr(arguments, 'run_urban_aggregation') and arguments.run_urban_aggregation is True:
+    #     run_aggregration_to_urban(model=arguments.model, scenario="ELV-SSP2-CP", SSP_base="SSP2", rounds=rounds)
+    #     combine_emissions_output(project_dir / "data" / "output")
 
     # if no arguments, print message
     if not any(vars(arguments).values()):

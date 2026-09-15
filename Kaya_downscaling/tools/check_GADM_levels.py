@@ -9,4 +9,4 @@ proj_path = datadir.get_data_dir()
 os.environ["PROJ_LIB"] = datadir.get_data_dir()
 os.environ["PROJ_DATA"] = proj_path
 
-convert_GIS.gadm_levels_to_csv(Path("Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/GADM/geopackage/gadm_410-levels.gpkg"), Path("data/processed/GADM"))
+convert_GIS.gadm_levels_to_csv(Path("Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/input_data_downscaling/GADM/geopackage/gadm_410-levels.gpkg"), Path("data/processed/GADM"))

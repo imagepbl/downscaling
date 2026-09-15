@@ -21,7 +21,7 @@ from tools.general_functions import PRINT_COLORS
 
 local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
-def process_urban_classification_data(project_dir: Path, log: logging.Logger=local_log) -> None:
+def process_urban_classification_data(project_dir: Path, save_gdf:bool=False, plot:bool=False, log: logging.Logger=local_log) -> None:
     '''
     Process urban classification data by merging geopandas dataframe with csv dataframe on GDAM_ID.
     The results is a geopandas dataframe with urban classification, including polygons for each GDAM_ID for each year, which is saved as a parquet file.
@@ -30,9 +30,10 @@ def process_urban_classification_data(project_dir: Path, log: logging.Logger=loc
     # 1. Process urban classification data by merging geopandas dataframe with csv dataframe on GDAM_ID.
 
     # Combine geopandas dataframe with csv dataframe on GDAM_ID
-    gpkg_path = project_dir / Path("data/input/DLL") / "data_final.gpkg"
-    csv_path = project_dir / Path("data/input/DLL") / "data_timeseries_70.csv"
-    merged_output_path = project_dir / Path("data/processed/DLL") / "urban_classification_years.parquet"
+    gpkg_path = project_dir / "data" / "input" / "DLL" / "data_final.gpkg"
+    csv_path = project_dir / "data" / "input" / "DLL" / "data_timeseries_70.csv"
+    merged_output_path = project_dir / "data" / "processed" / "DLL" / "urban_classification_years.parquet"
+    merged_output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Only load the ID column, other columns and geometry from the gpkg first, to check the join before pulling everything in
     start_time = time.time()
@@ -56,17 +57,17 @@ def process_urban_classification_data(project_dir: Path, log: logging.Logger=loc
     log.info(f"GADM level counts:\n{gdam_level_counts}")
     log.info(f"dtypes:\n{pformat(df_ts.dtypes.to_dict())}")
     log.info(f"\n{tabulate(df_ts.head(5), headers='keys', tablefmt='grid', intfmt=',', showindex=False)}")
-
-    # plot
-    print(f"\n{PRINT_COLORS["green"]}Plotting urban classification map and saving to {project_dir / Path('figures') / 'DLL_urban_classification_map.png'}{PRINT_COLORS["end"]}")
-    fig, axs = plt.subplots(figsize=(12, 8), ncols=2)
-    gdf.plot(ax=axs[0], column="NAME_0", cmap="cividis", legend=False)
-    axs[0].set_title("Urban Classification by Country")
-    gdf.plot(ax=axs[1], column="NAME_1", cmap="cividis", legend=False)
-    axs[1].set_title("Urban Classification by Province")
-    for ax in axs:
-        ax.set_axis_off()
-    fig.savefig(project_dir / Path("figures") / "DLL_urban_classification_map.png", dpi=300, bbox_inches="tight")
+    if plot:
+        # plot
+        print(f"\n{PRINT_COLORS["green"]}Plotting urban classification map and saving to {project_dir / Path('figures') / 'DLL_urban_classification_map.png'}{PRINT_COLORS["end"]}")
+        fig, axs = plt.subplots(figsize=(12, 8), ncols=2)
+        gdf.plot(ax=axs[0], column="NAME_0", cmap="cividis", legend=False)
+        axs[0].set_title("Urban Classification by Country")
+        gdf.plot(ax=axs[1], column="NAME_1", cmap="cividis", legend=False)
+        axs[1].set_title("Urban Classification by Province")
+        for ax in axs:
+            ax.set_axis_off()
+        #fig.savefig(project_dir / Path("figures") / "DLL_urban_classification_map.png", dpi=300, bbox_inches="tight")
 
     # Check join coverage before committing to a full merge
     gpkg_ids = set(gdf["GDAM_ID"])
@@ -96,38 +97,35 @@ def process_urban_classification_data(project_dir: Path, log: logging.Logger=loc
     log.info("Sample of merged data:")
     log.info(merged_gdf.sample(10))
 
-    # plot urban vs rural polygons for 2020 and 2050
-    print(f"\n{PRINT_COLORS["green"]}Plotting urban/rural classification map and saving to {project_dir / Path('figures') / 'DLL_urban_rural_map.png'}{PRINT_COLORS["end"]}")
-    country_borders = merged_gdf.dissolve(by="GID_0")
-    years = ["2020", "2050"]
-    colors = {1: "firebrick", 0: "forestgreen"}
-    labels = {1: "Urban", 0: "Rural"}
-    # alternative for four years: 2020, 2030, 2040, 2050
-    # plot_gdf = merged_gdf[["geometry"] + [f"cluster_{y}" for y in years]].copy()
-    # plot_gdf["geometry"] = plot_gdf.geometry.simplify(tolerance=0.01, preserve_topology=True)
-    # plot
-    fig, axs = plt.subplots(figsize=(16, 8), ncols=2)
-    for ax, year in zip(axs, years):
-        column = f"cluster_{year}"
-        merged_gdf.plot(ax=ax, color="lightgrey", edgecolor="none")  # background for missing/no-data
-        for value, color in colors.items():
-            merged_gdf[merged_gdf[column] == value].plot(ax=ax, color=color)
-        country_borders.plot(ax=ax, facecolor="none", edgecolor="black", linewidth=0.5)
-        ax.set_title(f"Urban/Rural Classification {year}")
-        ax.set_axis_off()
-    legend_handles = [Patch(color=color, label=labels[value]) for value, color in colors.items()]
-    legend_handles.append(Patch(color="lightgrey", label="No data"))
-    fig.legend(handles=legend_handles, loc="lower center", ncols=3, bbox_to_anchor=(0.5, -0.02))
-    # save figure
-    fig.savefig(project_dir / Path("figures") / "DLL_urban_rural_map.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    if plot:
+        # plot urban vs rural polygons for 2020 and 2050
+        print(f"\n{PRINT_COLORS["green"]}Plotting urban/rural classification map and saving to {project_dir / Path('figures') / 'DLL_urban_rural_map.png'}{PRINT_COLORS["end"]}")
+        country_borders = merged_gdf.dissolve(by="GID_0")
+        years = ["2020", "2050"]
+        colors = {1: "firebrick", 0: "forestgreen"}
+        labels = {1: "Urban", 0: "Rural"}
+        fig, axs = plt.subplots(figsize=(16, 8), ncols=2)
+        for ax, year in zip(axs, years):
+            column = f"cluster_{year}"
+            merged_gdf.plot(ax=ax, color="lightgrey", edgecolor="none")  # background for missing/no-data
+            for value, color in colors.items():
+                merged_gdf[merged_gdf[column] == value].plot(ax=ax, color=color)
+            country_borders.plot(ax=ax, facecolor="none", edgecolor="black", linewidth=0.5)
+            ax.set_title(f"Urban/Rural Classification {year}")
+            ax.set_axis_off()
+        legend_handles = [Patch(color=color, label=labels[value]) for value, color in colors.items()]
+        legend_handles.append(Patch(color="lightgrey", label="No data"))
+        fig.legend(handles=legend_handles, loc="lower center", ncols=3, bbox_to_anchor=(0.5, -0.02))
+        # save figure
+        fig.savefig(project_dir / Path("figures") / "DLL_urban_rural_map.png", dpi=300, bbox_inches="tight")
 
     print(f"\n{PRINT_COLORS["green"]}Saving results to geopandas and parquet files.{PRINT_COLORS["end"]}")
-    # # save to geopandas
-    # start_time = time.time()
-    # merged_gdf.to_file(merged_output_path.with_suffix(".gpkg"), driver="GPKG")
-    # elapsed_time_geo = time.time() - start_time
-    # log.info(f"Saved merged geopandas dataframe to {merged_output_path.with_suffix('.gpkg')} in {elapsed_time_geo:,.2f} seconds")
+    # save to geopandas
+    if save_gdf:
+        start_time = time.time()
+        merged_gdf.to_file(merged_output_path.with_suffix(".gpkg"), driver="GPKG")
+        elapsed_time_geo = time.time() - start_time
+        log.info(f"Saved merged geopandas dataframe to {merged_output_path.with_suffix('.gpkg')} in {elapsed_time_geo:,.2f} seconds")
 
     # save to parquet files
     merged_gdf.to_parquet(merged_output_path)
@@ -194,80 +192,6 @@ def _assert_grids_match(da_ref: xr.DataArray, da_other: xr.DataArray, tol_fracti
     if crs_ref is not None and crs_other is not None and crs_ref != crs_other:
         raise ValueError(f"CRS mismatch: reference {crs_ref} vs other {crs_other}.")
 
-#---------------------------------------------------------------------------------------------------------------------------
-# Different version of aggregate_urban_values using geocube instead of rasterio.features.rasterize, to compare results and performance.
-#---------------------------------------------------------------------------------------------------------------------------
-# Rasterio rasterize
-
-# def _rasterize_urban_value(gdf: gpd.GeoDataFrame, cluster_col: str, ds_ref: xr.Dataset) -> xr.DataArray:
-#     '''
-#     Burn each polygon's cluster_col value (1.0 urban, 0.0 non-urban) onto the grid of ds_ref using the
-#     default centre-based rule. Cells outside every polygon get NaN. Mirrors what make_geocube produces.
-#     '''
-#     if gdf.crs != ds_ref.rio.crs:
-#         gdf = gdf.to_crs(ds_ref.rio.crs)
-#     y_dim, x_dim = ds_ref.rio.y_dim, ds_ref.rio.x_dim
-#     shapes = ((geom, float(val)) for geom, val in zip(gdf.geometry, gdf[cluster_col]))
-#     burned = rasterio.features.rasterize(shapes, out_shape=(ds_ref.rio.height, ds_ref.rio.width),
-#                                          transform=ds_ref.rio.transform(), fill=np.nan, all_touched=False,
-#                                          dtype="float32")
-#     return xr.DataArray(burned, coords={y_dim: ds_ref[y_dim], x_dim: ds_ref[x_dim]}, dims=(y_dim, x_dim), name="urban")
-
-# # def aggregate_urban_values_rasterize(xr_emissions: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-# def aggregate_urban_values(project_dir: Path,
-#                            xr_dataset: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-#                            varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
-#                            region_varname: str = "region_number", final_year: int = 2100,
-#                            fraction_threshold: float = 0.8, supersample: int = 5, # not used here, but kept for API consistency
-#                            log: logging.Logger = dummy_log) -> xr.Dataset:
-#     '''
-#     Aggregate emissions per region and year based on urban classification, using rasterio.features.rasterize
-#     (centre-based, no geocube, no fraction) so it can be compared against the geocube version.
-#     '''
-#     if not xr_dataset.chunks:
-#         xr_dataset = xr_dataset.chunk({"time": 1, "y": 2048, "x": 2048})
-
-#     print(f"Calculating common years between gdf_urban_classification and xr_dataset...")
-#     cluster_years = sorted(int(col.replace("cluster_", "")) for col in gdf_urban_classification.columns
-#                            if col.startswith("cluster_"))
-#     emissions_years = set(int(y) for y in xr_dataset["time"].values)
-#     common_years = sorted(y for y in (set(cluster_years) & emissions_years) if y <= final_year)
-#     if not common_years:
-#         raise ValueError("No overlapping years found between gdf_urban_classification and xr_dataset.")
-#     log.info(f"Using {len(common_years)} common years: {common_years}")
-
-#     # one (y, x) value grid per year; coords taken from xr_dataset so they align exactly
-#     print(f"Building urban classification grids for {len(common_years)} common years...")
-#     start_time = time.time()
-#     urban_slices = [_rasterize_urban_value(gdf_urban_classification, f"cluster_{year}", xr_dataset).expand_dims(time=[year]) for year in common_years]
-
-#     time1_elapsed = time.time() - start_time
-#     print(f"Time elapsed for rasterizing urban values for common years: {time1_elapsed/60:,.2f} minutes")
-#     urban_by_year = xr.concat(urban_slices, dim="time")
-#     time2_elapsed = time.time() - time1_elapsed
-#     print(f"Time elapsed for concatenating urban grids: {time2_elapsed/60:,.2f} minutes")
-#     xr_combined = xr.merge([xr_dataset.sel(time=common_years), urban_by_year.to_dataset()], join="exact", compat="no_conflicts")
-#     time3_elapsed = time.time() - time2_elapsed
-#     print(f"Time elapsed for merging emissions and urban data: {time3_elapsed/60:,.2f} minutes")
-
-#     check = xr_combined[varname].sel(time=2020).where(xr_combined["region_number"]==1).sum().compute().values
-#     print(f"{PRINT_COLORS["red"]}Check xr_combined om aggregate_urban_values for region 1 in 2020: {check:,.2f}{PRINT_COLORS["end"]}")
-
-#     print(f"Aggregating values per {region_varname} for {len(common_years)} years...")
-#     log.info(f"Unique urban values (first year): {np.unique(xr_combined["urban"].isel(time=0).values)}")
-#     log.info(f"Unique region values (first year): {np.unique(xr_combined[region_varname].values)}")
-#     rows = []
-#     for r in range(1, 26):
-#         total = int((xr_combined[region_varname] == r).sum().compute())
-#         urban = int(((xr_combined[region_varname] == r) & (xr_combined['urban'].isel(time=0) == 1)).sum().compute())
-#         rural = int(((xr_combined[region_varname] == r) & (xr_combined['urban'].isel(time=0) == 0)).sum().compute())
-#         rows.append({"region": r, "total": total, "urban": urban, "rural": rural})
-#     df_cell_counts = pd.DataFrame(rows)
-#     log.info(f"Cell counts per region:\n{tabulate(df_cell_counts, headers='keys', tablefmt='grid', intfmt=',', showindex=False)}")
-#     df_cell_counts.to_csv(project_dir / "data/check/urban_comparison" / f"cell_counts_per_region.csv", index=False)
-
-#     return xr_combined
-
 def create_urban_id_raster(gdf_urban_classification: gpd.GeoDataFrame, ds_ref: xr.Dataset, cache_path: Path | None = None,
                            use_saved: bool = True, log: logging.Logger=dummy_log) -> np.ndarray:
     '''
@@ -321,7 +245,9 @@ def plot_urba_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str,
     urban = ds_check["urban"]
     print(f"{PRINT_COLORS['yellow']}Check: unique 2020 urban values: {np.unique(urban.values)}{PRINT_COLORS['end']}")
     check_urban_null = float(xr_check.where(urban.isnull()).sum())
-    print(f"{PRINT_COLORS['yellow']}Check: 2020 urban emissions unharmonised: urban_null={check_urban_null:,.0f}{PRINT_COLORS['end']}")
+    check_total_urban = float(xr_check.where(urban==1).sum())
+    check_perc_urban_null = check_urban_null / (check_urban_null + check_total_urban) * 100
+    print(f"{PRINT_COLORS['yellow']}Check: 2020 urban emissions unharmonised: urban_null={check_urban_null:,.0f}, total_urban={check_total_urban:,.0f}, percentage_null={check_perc_urban_null:.2f}%{PRINT_COLORS['end']}")
 
     ds_2020 = xr_urban.sel(time=2020)
     em_na = ds_2020[varname].where(ds_2020["urban"].isnull())
@@ -355,9 +281,9 @@ def aggregate_urban_values(project_dir: Path,
                            profile: str, add_txt: str,
                            xr_dataset: xr.Dataset,
                            gdf_urban_classification: gpd.GeoDataFrame,
+                           base_year: int = 2020,
                            varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
                            region_varname: str = "region_number", final_year: int = 2100,
-                           fraction_threshold: float = 0.8, supersample: int = 5, # not used here, but kept for API consistency
                            use_saved: bool = True, log: logging.Logger = dummy_log) -> xr.Dataset:
     '''
     Aggregate emissions per region and year based on urban classification, using rasterio.features.rasterize
@@ -395,14 +321,16 @@ def aggregate_urban_values(project_dir: Path,
     t_merge = time.time()
     print(f"Time elapsed for merging emissions and urban data: {(t_merge - t_concat)/60:,.2f} minutes")
 
-    check = xr_combined[varname].sel(time=2020).where(xr_combined["region_number"]==1).sum().compute().values
-    print(f"{PRINT_COLORS["red"]}Check xr_combined om aggregate_urban_values for region 1 in 2020: {check:,.2f}{PRINT_COLORS["end"]}")
+    check = xr_combined[varname].sel(time=base_year).where(xr_combined["region_number"]==1).sum().compute().values
+    print(f"{PRINT_COLORS["yellow"]}Check xr_combined om aggregate_urban_values for region 1 in 2020: {check:,.2f}{PRINT_COLORS["end"]}")
 
     print(f"Aggregating values per {region_varname} for {len(common_years)} years...")
     log.info(f"Unique urban values (first year): {np.unique(xr_combined["urban"].isel(time=0).values)}")
     log.info(f"Unique region values (first year): {np.unique(xr_combined[region_varname].values)}")
     rows = []
-    for r in range(1, 27):
+    nr_regions = np.unique(xr_combined[region_varname].values).size
+    print(f"Counting cells per region (1..{nr_regions})...")
+    for r in range(1, nr_regions):
         total = int((xr_combined[region_varname] == r).sum().compute())
         urban = int(((xr_combined[region_varname] == r) & (xr_combined["urban"].isel(time=0) == 1)).sum().compute())
         rural = int(((xr_combined[region_varname] == r) & (xr_combined["urban"].isel(time=0) == 0)).sum().compute())
@@ -437,169 +365,3 @@ def calculate_urban_rural_totals(xr_dataset: xr.Dataset, varname: str, region_va
                        .rename(columns={"time": "year"}))
 
     return df_urban_values, df_rural_values
-#---------------------------------------------------------------------------------------------------------------------------
-# Rasterio rasterize with urban fractions instead of full cell
-
-# def _rasterize_polygon_ids_fine(gdf: gpd.GeoDataFrame, ds_ref: xr.Dataset, supersample: int) -> tuple[np.ndarray, xr.DataArray]:
-#     '''
-#     Burn a 1-based polygon index onto a grid supersample times finer than ds_ref (0 = outside every polygon),
-#     rasterizing the geometry only once. Per-year fractions are then block-means of value lookups on this grid.
-#     Returns the fine id array (H*S, W*S) and a coarse template DataArray carrying ds_ref's aligned x/y coords.
-#     '''
-#     if gdf.crs != ds_ref.rio.crs:
-#         gdf = gdf.to_crs(ds_ref.rio.crs)
-#     y_dim, x_dim = ds_ref.rio.y_dim, ds_ref.rio.x_dim
-#     height, width = ds_ref.rio.height, ds_ref.rio.width
-#     id_dtype = "uint16" if len(gdf) <= np.iinfo("uint16").max else "int32"  # GADM level-2 global is ~45k polygons
-#     transform_fine = ds_ref.rio.transform() * Affine.scale(1 / supersample)
-#     ids = rasterio.features.rasterize(((geom, i) for i, geom in enumerate(gdf.geometry, start=1)),
-#                                       out_shape=(height * supersample, width * supersample), transform=transform_fine,
-#                                       fill=0, all_touched=False, dtype=id_dtype)
-#     template = xr.DataArray(np.empty((height, width), dtype="float32"),
-#                             coords={y_dim: ds_ref[y_dim], x_dim: ds_ref[x_dim]}, dims=(y_dim, x_dim))
-#     return ids, template
-
-# def aggregate_urban_values_fraction(xr_dataset: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-#                                     varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
-#                                     region_varname: str = "region_number", final_year: int = 2100,
-#                                     supersample: int = 5, log: logging.Logger = dummy_log) -> tuple[xr.Dataset, pd.DataFrame, pd.DataFrame]:
-#     '''
-#     Aggregate values per region and year by apportioning each cell's emissions to urban and rural in proportion
-#     to the fraction of the cell covered by urban / non-urban classified districts (supersample-based coverage).
-#     '''
-#     if not xr_dataset.chunks:
-#         xr_dataset = xr_dataset.chunk({"time": 1, "y": 2048, "x": 2048})
-
-#     cluster_years = sorted(int(col.replace("cluster_", "")) for col in gdf_urban_classification.columns if col.startswith("cluster_"))
-#     emissions_years = set(int(y) for y in xr_dataset["time"].values)
-#     common_years = sorted(y for y in (set(cluster_years) & emissions_years) if y <= final_year)
-#     if not common_years:
-#         raise ValueError("No overlapping years found between gdf_urban_classification and xr_dataset.")
-#     log.info(f"Using {len(common_years)} common years: {common_years}")
-
-#     height, width = xr_dataset.rio.height, xr_dataset.rio.width
-#     print(f"Rasterizing polygon ids once at {supersample}x resolution...")
-#     start_time = time.time()
-#     ids_fine, template = _rasterize_polygon_ids_fine(gdf_urban_classification, xr_dataset, supersample)
-#     print(f"Time elapsed for the single rasterization: {(time.time() - start_time)/60:,.2f} minutes")
-
-#     # classified fraction is year-independent (districts don't move) -> compute once
-#     f_classified = ((ids_fine > 0).reshape(height, supersample, width, supersample).mean(axis=(1, 3))).astype("float32")
-
-#     urban_slices, rural_slices = [], []
-#     for year in common_years:
-#         # is_urban_lut[i] tells whether polygon id i is urban this year; index 0 = outside any polygon
-#         is_urban_lut = np.concatenate(([False], gdf_urban_classification[f"cluster_{year}"].to_numpy() == 1.0))
-#         f_urban = (is_urban_lut[ids_fine].reshape(height, supersample, width, supersample).mean(axis=(1, 3))).astype("float32")
-#         urban_slices.append(template.copy(data=f_urban).expand_dims(time=[year]))
-#         rural_slices.append(template.copy(data=(f_classified - f_urban)).expand_dims(time=[year]))
-
-#     urban_fraction = xr.concat(urban_slices, dim="time").rename("urban_fraction")
-#     rural_fraction = xr.concat(rural_slices, dim="time").rename("rural_fraction")
-#     xr_combined = xr.merge([xr_dataset.sel(time=common_years), urban_fraction.to_dataset(), rural_fraction.to_dataset()],
-#                            join="exact", compat="no_conflicts")
-
-#     region = xr_combined[region_varname].compute()
-#     emis = xr_combined[varname]
-#     urban_totals = (emis * xr_combined["urban_fraction"]).groupby(region).sum().compute()
-#     rural_totals = (emis * xr_combined["rural_fraction"]).groupby(region).sum().compute()
-#     df_urban_values = urban_totals.to_dataframe(name=varname).reset_index().rename(columns={"time": "year"})
-#     df_rural_values = rural_totals.to_dataframe(name=varname).reset_index().rename(columns={"time": "year"})
-
-#     return xr_combined, df_urban_values, df_rural_values
-
-#---------------------------------------------------------------------------------------------------------------------------
-# Geocube
-
-# def aggregate_urban_values_geocube(xr_emissions: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-# #def aggregate_urban_values(xr_dataset: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-#                             varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
-#                             region_varname: str = "region_number", final_year: int = 2100,
-#                             fraction_threshold: float = 0.8, supersample: int = 5, # not used here, but kept for API consistency
-#                             log: logging.Logger=dummy_log) -> tuple[xr.Dataset, pd.DataFrame, pd.DataFrame]:
-#     '''
-#     Aggregate values per region and year, based on urban classification.
-#     '''
-#     print(f"Variables in xr_dataset: {xr_dataset.variables}")
-
-#     if not xr_dataset.chunks:
-#         xr_dataset = xr_dataset.chunk({"time": 1, "y": 2048, "x": 2048})
-
-#     for r in range(1, 26):
-#         check = xr_dataset.sel(time=2020).where(xr_dataset[region_varname]==r).sum().compute().values
-#         print(f"Total emissions for region {r} in 2020: {check:,.2f}")
-#     # Derive available classification years from gdf_urban_classification's column names
-#     cluster_years = sorted(int(col.replace("cluster_", ""))
-#                         for col in gdf_urban_classification.columns
-#                         if col.startswith("cluster_"))
-#     log.info(f"Available classification years in gdf_urban_classification: {cluster_years}")
-
-#     # Keep only years present in both gdf_urban_classification and xr_emissions
-#     log.info(f"Available classification years in gdf_urban_classification: {cluster_years}")
-#     emissions_years = set(int(y) for y in xr_dataset["time"].values)
-#     log.info(f"Available years in xr_emissions: {sorted(emissions_years)}")
-
-#     common_years = sorted(y for y in (set(cluster_years) & emissions_years) if y <= final_year)
-#     if not common_years:
-#         raise ValueError("No overlapping years found between gdf_urban_classification and xr_emissions.")
-#     log.info(f"Using {len(common_years)} common years: {common_years}")
-
-#     # Build one (y, x) urban grid per common year, tagged with a "time" coord
-#     log.info(f"Building urban classification grids for {len(common_years)} common years...")
-#     urban_slices = []
-#     for year in common_years:
-#         log.info(year)
-#         col_name = f"cluster_{year}"
-#         year_gdf = gdf_urban_classification[["geometry", col_name]]
-#         year_grid = make_geocube(vector_data=year_gdf, like=xr_dataset, measurements=[col_name])
-#         da = year_grid[col_name].rename("urban")
-#         da = da.expand_dims(time=[year])
-#         urban_slices.append(da)
-
-#     log.info(f"Concatenating {len(urban_slices)} urban classification grids along the time dimension...")
-#     urban_by_year = xr.concat(urban_slices, dim="time")
-#     urban_by_year = urban_by_year.assign_coords(x=xr_dataset["x"], y=xr_dataset["y"])
-#     xr_combined = xr.merge([xr_dataset.sel(time=common_years), urban_by_year.to_dataset()], join="exact", compat="no_conflicts")
-#     log.info(xr_combined)
-
-#     # --- Aggregate emissions per region_number, per year ---
-#     log.info(f"Aggregating values per {region_varname} for {len(common_years)} years...")
-#     da_emissions = xr_combined[varname]
-#     da_region = xr_combined[region_varname].load()
-#     da_urban = xr_combined["urban"]
-#     # print unique values for da_urban
-#     log.info(f"Unique urban values (first year): {np.unique(da_urban.isel(time=0).values)}")
-#     urban_emissions = da_emissions.where(da_urban == 1)
-#     urban_regional_totals = urban_emissions.groupby(da_region).sum()
-#     for r in range(1, 26):
-#         check = urban_regional_totals.sel(time=2020).where(urban_regional_totals[region_varname]==r).sum().compute().values
-#         print(f"Total urban emissions for region {r} in 2020: {check:,.2f}")
-#     df_urban_emissions = urban_regional_totals.to_dataframe(name=varname).reset_index()
-#     df_urban_emissions = df_urban_emissions.rename(columns={"time": "year",})
-
-#     rural_emissions = da_emissions.where(da_urban == 0)
-#     rural_regional_totals = rural_emissions.groupby(da_region).sum()
-#     df_rural_emissions = rural_regional_totals.to_dataframe(name=varname).reset_index()
-#     df_rural_emissions = df_rural_emissions.rename(columns={"time": "year",})
-
-#     return xr_combined, df_urban_emissions, df_rural_emissions
-
-#---------------------------------------------------------------------------------------------------------------------------
-# # Registry of the three variants, plus the currently active choice.
-# _METHODS = {"fraction": aggregate_urban_values_fraction, "geocube": aggregate_urban_values_geocube,
-#             "rasterize": aggregate_urban_values_rasterize}
-# _active = "fraction"
-
-# def set_method(name):
-#     if name not in _METHODS:
-#         raise ValueError(f"unknown method: {name}")
-#     global _active
-#     _active = name
-
-# def aggregate_urban_values(xr_emissions: xr.Dataset, gdf_urban_classification: gpd.GeoDataFrame,
-#                                 emissions_varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
-#                                 region_varname: str = "region_number", final_year: int = 2100,
-#                                 fraction_threshold: float = 0.8, supersample: int = 5, # used for fraction method, not used for geocube or rasterize
-#                                 log: logging.Logger=dummy_log) -> tuple[xr.Dataset, pd.DataFrame, pd.DataFrame]:
-#     return _METHODS[_active](xr_emissions, gdf_urban_classification, emissions_varname, region_varname, final_year, fraction_threshold, supersample, log)
-#---------------------------------------------------------------------------------------------------------------------------

@@ -26,23 +26,12 @@ colour_green = "\033[92m"
 colour_yellow = "\033[93m"
 color_end = "\033[0m"
 
-def GADM_vector_to_raster(input_dir:Path, output_dir:Path, resolution_degrees: float = 5, plot:bool=False) -> Tuple[Path, pd.DataFrame, pd.DataFrame]:
-    """
-    Read in GADM countries file and convert vector data to raster format using rasterio.
-
-    Parameters
-    project_dir : str - Project directory path
-    resolution_degrees : float - Resolution in degrees. Default 1/120 corresponds to 0.5 arc-minutes
-    plot : bool - Whether to create a plot of the countries
-    """
-    print(f"\nConverting GADM vector data to raster format with resolution {resolution_degrees:.6f} degrees ({60 * resolution_degrees:.2f} arc-minutes)...")
-
+def read_GADM_vector(input_dir:Path, output_dir:Path) -> [gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
     # Read in
     file_GADM_countries = input_dir / "gadm_410.gpkg"
     print(f"Reading GADM countries from: {file_GADM_countries}")
     countries = gpd.read_file(file_GADM_countries)
     # remove countries not needed
-    #mask_countries_excluded = ~countries["GID_0"].str.match(r"^(X|Z\d{2})") # also exclude 'XKO' (Kosovo)
     mask_countries_excluded = ~countries["GID_0"].str.match(r"^(X(?!KO)|Z\d{2})") # Do include 'XKO' (Kosovo)
     excluded_countries_df = (countries.loc[~mask_countries_excluded, ["GID_0", "NAME_0"]]
                                 .drop_duplicates()
@@ -56,16 +45,15 @@ def GADM_vector_to_raster(input_dir:Path, output_dir:Path, resolution_degrees: f
     check_countries.to_csv(f"{output_dir}/GADM_countries.csv", sep=";", index=False)
 
     # Plot
-    if plot:
-        import matplotlib.pyplot as plt
-        print("Plotting GADM countries...")
-        fig, ax = plt.subplots(figsize=(12, 8))
-        countries.plot(ax=ax, edgecolor="black", facecolor="lightblue", linewidth=0.5)
-        ax.set_title("GADM Countries")
-        ax.set_xlabel("Longitude")
-        ax.set_ylabel("Latitude")
-        plt.savefig(output_dir / "figures/GADM_countries.png", dpi=300)
-        plt.close()
+    import matplotlib.pyplot as plt
+    print("Plotting GADM countries...")
+    fig, ax = plt.subplots(figsize=(12, 8))
+    countries.plot(ax=ax, edgecolor="black", facecolor="lightblue", linewidth=0.5)
+    ax.set_title("GADM Countries")
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    plt.savefig(output_dir / "figures/GADM_countries.png", dpi=300)
+    plt.close()
 
     # Convert
     print("Converting GADM vector data to raster format...")
@@ -88,10 +76,23 @@ def GADM_vector_to_raster(input_dir:Path, output_dir:Path, resolution_degrees: f
     df_id_to_iso = pd.DataFrame({"id": list(id_to_iso.keys()), "ISO": list(id_to_iso.values())})
     df_id_to_iso["NAME"] = df_id_to_iso["ISO"].map(iso_to_name)
     df_id_to_iso.to_csv(f"{output_dir}/id_to_iso_mapping.csv", sep=";", index=False)
-    # pd.DataFrame(list(iso_to_id.items()), columns=["ISO", "id"]).to_csv(f"{dir_GADM}/iso_to_id_mapping.csv", sep=";", index=False)
-    # id_to_iso = {i: iso for iso, i in iso_to_id.items()}
-    # pd.DataFrame(list(id_to_iso.items()), columns=["id", "ISO"]).to_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";", index=False)
     countries["iso_id"] = countries["GID_0"].map(iso_to_id)
+
+    return countries, df_iso_to_id, df_id_to_iso
+
+def GADM_vector_to_raster(input_dir:Path, output_dir:Path, resolution_degrees: float = 5) -> Tuple[Path, pd.DataFrame, pd.DataFrame]:
+    """
+    Read in GADM countries file and convert vector data to raster format using rasterio.
+
+    Parameters
+    project_dir : str - Project directory path
+    resolution_degrees : float - Resolution in degrees. Default 1/120 corresponds to 0.5 arc-minutes
+    plot : bool - Whether to create a plot of the countries
+    """
+    print(f"\nConverting GADM vector data to raster format with resolution {resolution_degrees:.6f} degrees ({60 * resolution_degrees:.2f} arc-minutes)...")
+
+    # Read in GADM countries vector data
+    countries, df_iso_to_id, df_id_to_iso = read_GADM_vector(input_dir, output_dir)
 
     # Define output filename
     resolution_minutes_str = f"{60 * resolution_degrees:.2f}".replace(".", "_")
@@ -381,7 +382,7 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     print(f"Checking if GADM raster file exists at: {iso_GADM_raster_file}")
     if not Path(iso_GADM_raster_file).exists():
         print(f"Reading in GADM raster with resolution {resolution_minutes} arc minutes file for countries: {iso_GADM_raster_file}")
-        raster_file, df_iso_to_id, df_id_to_iso = GADM_vector_to_raster(data_dir_GADM, dir_GADM, resolution_degrees = resolution_minutes/60, plot=False)
+        raster_file, df_iso_to_id, df_id_to_iso = GADM_vector_to_raster(data_dir_GADM, dir_GADM, resolution_degrees = resolution_minutes/60)
     else:
         print(f"GADM raster with resolution {resolution_minutes} arc minutes file already exists at: {iso_GADM_raster_file}, skipping creation.")
         df_iso_to_id = pd.read_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";")

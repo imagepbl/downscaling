@@ -7,7 +7,7 @@ import downscaling.downscaling as downscaling
 
 # read in grid emissions
 varname_EM = "Emissions_CO2_Excl_shipping_aviation_AFOLU"
-dir_EM = "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/data_downscaling/emissions/processed/EDGAR/2024"
+dir_EM = "Z:/cold_data_storage/users/roelfsemam/surdrive_UU/NSA/Downscaling_share/input_data_downscaling/emissions/processed/EDGAR/2024"
 path_EM = f"{dir_EM}/Emissions_CO2_Excl_shipping_aviation_AFOLU.nc"
 xr_EM = xr.open_dataset(path_EM)
 print(f"{xr_EM[varname_EM].attrs["unit"]}")

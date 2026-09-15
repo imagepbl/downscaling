@@ -48,7 +48,7 @@ def convert_netcdf_to_tiff(ds: xr.Dataset, variable_name: str, output_file: str)
 # GeoPackage (vector data) to Shapefile conversion
 def convert_gpkg_to_shapefile():
     # # settings
-    # data_dir = "Z:/cold_data_storage/users/roelfsemam/data_downscaling"
+    # data_dir = "Z:/cold_data_storage/users/roelfsemam/input_data_downscaling"
     # file_open = "global_population_and_gdp.gpkg"
     # file_path_open = f"{data_dir}/{file_open}"
     root = tk.Tk()
@@ -519,7 +519,7 @@ if __name__ == "__main__":
         #     convert_IMAGE_regions_netcdf_to_tiff()
         #         # if no arguments, print message
         if hasattr(arguments, 'add_crs_to_tiff_files') and arguments.add_crs_to_tiff_files is True:
-        # pixi run python tools/convert_GIS.py -a -d "Z:\cold_data_storage\users\roelfsemam\data_downscaling\population\2UP\TowardsAnUrbanPreview_2024_GHSL2014_M3\results\LatLong_World\tpop" -c "EPSG:4326" -b "(-180, -90, 180, 90)"
+        # pixi run python tools/convert_GIS.py -a -d "Z:\cold_data_storage\users\roelfsemam\input_data_downscaling\population\2UP\TowardsAnUrbanPreview_2024_GHSL2014_M3\results\LatLong_World\tpop" -c "EPSG:4326" -b "(-180, -90, 180, 90)"
             if arguments.directory is None or arguments.bounds is None:
                 parser.error("--add_crs_to_tiff_files requires --directory and --bounds to be specified")
             update_crs_in_tiff_files(arguments.directory, arguments.crs, tuple(arguments.bounds))

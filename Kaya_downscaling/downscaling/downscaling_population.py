@@ -118,7 +118,7 @@ import downscaling.settings_models as settings_models
 pd.set_option('display.max_rows', 25)
 
 # Set project_dir to one directory above current working directory
-current_dir = Path().cwd()
+current_dir = Path.cwd()
 print("Current working directory:", current_dir)
 project_dir = Path.cwd().parent
 print(f"Current path: {project_dir.name}")

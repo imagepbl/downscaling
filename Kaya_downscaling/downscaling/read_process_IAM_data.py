@@ -106,7 +106,7 @@ def read_IAM_regions_data(project_dir: Path, model:str, scenario:str, regions_ma
     # Scenario name should be the name of the IAMC template Excel file
 
     # Read IAM data
-    excel_path = project_dir / f"data/input/models/{model}/SSP/{scenario}.xlsx"
+    excel_path = project_dir / f"data/input/models/{model}/scenarios/{scenario}.xlsx"
     df_IAM = pd.read_excel(excel_path, sheet_name="data")
     df_IAM = df_IAM[df_IAM["Region"]!="World"]
     df_IAM = df_IAM.melt(id_vars=["Model", "Scenario", "Region", "Variable", "Unit"], var_name="Year", value_name="Value")
@@ -160,11 +160,9 @@ def extrapolate_IAM_values_to_convergence_year(dir_procesed: Path, df:pd.DataFra
     log.info(f"Extrapolating IAM values to convergence year {convergence_year} using method {method}...")
 
     df.columns = [col.lower() for col in df.columns]
-    varname = df["variable"].unique()[0]
-
     max_year = df["year"].max()
     second_max_year = df["year"].unique()[-2]
-
+    varname = df["variable"].unique()[0]
     model = df["model"].unique()[0]
     scenario = df["scenario"].unique()[0]
     variable = df["variable"].unique()[0]
@@ -288,85 +286,57 @@ def process_GDP(model:str, df:pd.DataFrame, var:str) -> pd.DataFrame:
 
 def process_EM_regions_data(df:pd.DataFrame, years_downscaling:list, varname_dataset:str, vars_downscaling:list[str], net_emissions:bool=True, model:str="IMAGE", log: logging.Logger=local_log) -> pd.DataFrame:
     # Select CO2 emissions, excluding bunkers and domestic aviation/shipping and AFOLU CO2
-    #varname_CO2_excl_ship_av_AFOLU = "Emissions|CO2|Excl. shipping, aviation, AFOLU"
-    # vars_CO2_excl_ship_av_AFOLU = ["Emissions|CO2",
-    #                                "Emissions|CO2|Energy|Demand|Bunkers|International Aviation", "Emissions|CO2|Energy|Demand|Bunkers|International Shipping",
-    #                                "Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation", "Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping",
-    #                                "Emissions|CO2|AFOLU"]
 
     df_IAM_projection_em_downscaling = pd.DataFrame()
 
-    if model == "IMAGE":
-        #vars_CO2_excl_ship_av_AFOLU = list_emissions_excl_ship_av_AFOLU()
-        #log.info(f"Variables for CO2 emissions excluding shipping, aviation, and AFOLU: {vars_CO2_excl_ship_av_AFOLU}")
+    # check which variables from var_IAM_projectoin_CO2 are not in the variables
+    missing_vars = [var for var in vars_downscaling if var not in df["variable"].unique()]
+    if missing_vars:
+        log.info(f"{PRINT_COLORS["red"]}Warning: The following variables are missing in the IAM projection data: {missing_vars}{PRINT_COLORS["end"]}")
 
-        # check which variables from var_IAM_projectoin_CO2 are not in the variables
-        missing_vars = [var for var in vars_downscaling if var not in df["variable"].unique()]
-        if missing_vars:
-            log.info(f"{PRINT_COLORS["red"]}Warning: The following variables are missing in the IAM projection data: {missing_vars}{PRINT_COLORS["end"]}")
+    df_CO2_breakdown = df[df["variable"].isin(vars_downscaling)]
+    if net_emissions:
+        unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
+        log.info(f"Unit CO2 emissions: {unit_CO2}")
+    else:
+        unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Gross Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
+        log.info(f"Unit gross CO2 emissions: {unit_CO2}")
 
-        df_CO2_breakdown = df[df["variable"].isin(vars_downscaling)]
-        if net_emissions:
-            unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
-            log.info(f"Unit CO2 emissions: {unit_CO2}")
-        else:
-            unit_CO2 = df_CO2_breakdown[df_CO2_breakdown["variable"]=="Gross Emissions|CO2|Energy|Supply"]["unit"].unique()[0]
-            log.info(f"Unit gross CO2 emissions: {unit_CO2}")
+    # Collect CO2 indicators for regional IAM  projections
+    index_cols = ["model", "scenario", "region_code"] + (["region_number"] if "region_number" in df_CO2_breakdown.columns else []) + ["year"]
+    df_CO2_excl_ship_av_AFOLU = df_CO2_breakdown.pivot(index=index_cols ,columns="variable",values="value").fillna(0).reset_index()
+    df_CO2_excl_ship_av_AFOLU.to_csv("data/check/df_CO2_excl_ship_av_AFOLU.csv", index=False)
 
-        # process CO2 emissions shipping and aviation
-        # mask_CO2_int_shipping = ((df_CO2_breakdown["region_code"] != "World") & (df_CO2_breakdown["variable"] == "Emissions|CO2|Energy|Demand|Bunkers|International Shiping"))
-        # df_CO2_breakdown.loc[mask_CO2_int_shipping, "value"] = 0
+    if net_emissions:
+        df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Supply"] +
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand"] +
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] -
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation"] -
+                                                        df_CO2_excl_ship_av_AFOLU.get("Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping", 0) -
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Aviation"] -
+                                                        df_CO2_excl_ship_av_AFOLU.get("Emissions|CO2|Energy|Demand|Bunkers|International Shipping", 0) # in ELV-SSP2-CP and ELV-SSP2-1150F there are only global international shipping emissions
+                                                        )
+    else: # gross emissions
+        df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Supply"] +
+                                                        df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Demand"] +
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] -
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation"] -
+                                                        df_CO2_excl_ship_av_AFOLU.get("Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping", 0) -
+                                                        df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Aviation"] - # in ELV-SSP2-CP and ELV-SSP2-1150F there are only global international aviation emissions
+                                                        df_CO2_excl_ship_av_AFOLU.get("Emissions|CO2|Energy|Demand|Bunkers|International Shipping", 0) # in ELV-SSP2-CP and ELV-SSP2-1150F there are only global international shipping emissions
+                                                        )
 
-        # mask_CO2_int_aviation = ((df_CO2_breakdown["region_code"] != "World") & (df_CO2_breakdown["variable"] == "Emissions|CO2|Energy|Demand|Bunkers|International Aviation"))
-        # df_CO2_breakdown.loc[mask_CO2_int_aviation, "value"] = 0
+    df_CO2_excl_ship_av_AFOLU = df_CO2_excl_ship_av_AFOLU.melt(id_vars=index_cols, value_vars=[varname_dataset], var_name="variable", value_name="value")
+    df_CO2_excl_ship_av_AFOLU["year"] = df_CO2_excl_ship_av_AFOLU["year"].astype(int)
+    df_CO2_excl_ship_av_AFOLU["unit"] = unit_CO2
 
-        # Collect CO2 indicators for regional IAM  projections
-        index_cols = ["model", "scenario", "region_code"] + (["region_number"] if "region_number" in df_CO2_breakdown.columns else []) + ["year"]
-        df_CO2_excl_ship_av_AFOLU = df_CO2_breakdown.pivot(index=index_cols ,columns="variable",values="value").fillna(0).reset_index()
-        df_CO2_excl_ship_av_AFOLU.to_csv("data/check/df_CO2_excl_ship_av_AFOLU.csv", index=False)
+    # check sum of regions in the year 2020
+    log.info(f"Check {model} CO2 emissions 2020 after processing EM regions data:")
+    value_CO2_2020_projections = df_CO2_excl_ship_av_AFOLU[df_CO2_excl_ship_av_AFOLU["year"]==2020].groupby(["model", "scenario", "year", "variable", "unit"]).sum().reset_index()["value"]
+    log.info(f"Emissions 2020: {value_CO2_2020_projections.iloc[0]:,.0f}")
 
-        if net_emissions:
-            df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Supply"] +
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand"] +
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] -
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation"] -
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping"]-
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Aviation"] #-
-                                                          #df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Shipping"] # in ELV-SSP2-CP and ELV-SSP2-1150F there are only global international shipping emissions
-                                                          )
-            # df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Supply"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Industry"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Residential and Commercial"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation"])
-        else: # gross emissions
-            df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Supply"] +
-                                                          df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Demand"] +
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] -
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Aviation"] -
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation|Domestic Shipping"] -
-                                                          df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Aviation"] #-
-                                                          #df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Bunkers|International Shipping"] # in ELV-SSP2-CP and ELV-SSP2-1150F there are only global international shipping emissions
-                                                          )
-
-            # df_CO2_excl_ship_av_AFOLU[varname_dataset] = (df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Supply"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Gross Emissions|CO2|Energy|Demand|Industry"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Industrial Processes"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Residential and Commercial"] +
-            #                                               df_CO2_excl_ship_av_AFOLU["Emissions|CO2|Energy|Demand|Transportation"])
-
-
-        df_CO2_excl_ship_av_AFOLU = df_CO2_excl_ship_av_AFOLU.melt(id_vars=index_cols, value_vars=[varname_dataset], var_name="variable", value_name="value")
-        df_CO2_excl_ship_av_AFOLU["year"] = df_CO2_excl_ship_av_AFOLU["year"].astype(int)
-        df_CO2_excl_ship_av_AFOLU["unit"] = unit_CO2
-
-        # check sum of regions in the year 2020
-        log.info(f"Check {model} CO2 emissions 2020 after processing EM regions data:")
-        value_CO2_2020_projections = df_CO2_excl_ship_av_AFOLU[df_CO2_excl_ship_av_AFOLU["year"]==2020].groupby(["model", "scenario", "year", "variable", "unit"]).sum().reset_index()["value"]
-        log.info(f"Emissions 2020: {value_CO2_2020_projections.iloc[0]:,.0f}")
-
-        df_IAM_projection_em_downscaling = df_CO2_excl_ship_av_AFOLU.copy()
-        df_IAM_projection_em_downscaling.columns = [col.lower() for col in df_IAM_projection_em_downscaling.columns]
-        df_IAM_projection_em_downscaling = df_IAM_projection_em_downscaling[df_IAM_projection_em_downscaling["year"].isin(years_downscaling)]
+    df_IAM_projection_em_downscaling = df_CO2_excl_ship_av_AFOLU.copy()
+    df_IAM_projection_em_downscaling.columns = [col.lower() for col in df_IAM_projection_em_downscaling.columns]
+    df_IAM_projection_em_downscaling = df_IAM_projection_em_downscaling[df_IAM_projection_em_downscaling["year"].isin(years_downscaling)]
 
     return df_IAM_projection_em_downscaling

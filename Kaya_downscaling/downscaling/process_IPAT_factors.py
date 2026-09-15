@@ -15,6 +15,7 @@ from xarray.groupers import UniqueGrouper
 from tools.functions_logging import init_logging
 from tools.general_functions import replace_punctuation_in_filenames
 from downscaling.read_process_grid_data import calculate_resolution
+from tools.general_functions import PRINT_COLORS
 
 local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
@@ -701,12 +702,9 @@ def apply_harmonisation_factors_emissions(xr_correction_factors:xr.DataArray,
         xr_grid_correction = xr_em.assign(correction_factor=xr_correction_factors_masked)
     else:
         # if xr_SE_grid is a DataArray named 'se_indicator'
-        xr_grid_correction = xr.Dataset(
-            data_vars=dict(
-                se_indicator=xr_SE_grid,
-                correction_factor=xr_correction_factors_masked
-            )
-        )
+        xr_grid_correction = xr.Dataset(data_vars=dict(
+                                        se_indicator=xr_SE_grid,
+                                        correction_factor=xr_correction_factors_masked))
     # add region number to Dataset
     # 2-D region numbers (y, x), int and aligned to SE grid
     region2d = xr_IAM_regions_grid_downscaling.region_number.astype("int8")
@@ -715,13 +713,17 @@ def apply_harmonisation_factors_emissions(xr_correction_factors:xr.DataArray,
     xr_grid_correction = xr_grid_correction.assign_coords(region_number=(("y", "x"), region2d.values))
 
     # optional: helpful attrs
-    xr_grid_correction.coords["region_number"].attrs.update(
-        long_name=f"{model} {scenario} region number (0=ocean, 1–{nr_regions}=land regions)"
-    )
+    xr_grid_correction.coords["region_number"].attrs.update(long_name=f"{model} {scenario} region number (0=ocean, 1–{nr_regions}=land regions)")
 
     # Apply correction factor to se_indicator variable
     #varname_corrected = f"{varname}_corrected"
     xr_grid_correction[varname] = xr_grid_correction[varname] * xr_grid_correction["correction_factor"]
+
+    # for 2020, compare the sum of corrected se_indicator with IAM regional value
+    sum_corrected_2020 = xr_grid_correction[varname].sel(time=2020).sum().compute().item()
+    sum_corrected_by_region_2020 = xr_grid_correction[varname].sel(time=2020).groupby(xr_grid_correction.region_number).sum().compute()
+    print(f"{PRINT_COLORS["yellow"]}Global sum of corrected {varname} for 2020: {sum_corrected_2020:,.2f}{PRINT_COLORS["end"]}")
+    print(f"{PRINT_COLORS["yellow"]}Sum of corrected {varname} by region for 2020: {sum_corrected_by_region_2020}{PRINT_COLORS["end"]}")
 
     return xr_grid_correction
 
