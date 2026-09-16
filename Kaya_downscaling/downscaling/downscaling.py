@@ -288,7 +288,7 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
 
     base_year = settings_downscaling.base_year
     years_downscaling = settings_downscaling.years_downscaling
-    convergence_year = settings_downscaling.convergence_year
+    #convergence_year = settings_downscaling.convergence_year
     method_extension = settings_downscaling.method_extension
     #vars_downscaling = settings_downscaling.vars_downscaling
     process_flags = settings_downscaling.process_flags
@@ -566,7 +566,7 @@ def downscale_SE_data(project_dir:Path, variable_SE: str, scenario: str, model: 
     elapsed_time = time.time() - start_time
     debug_log.info(f"\n{PRINT_COLORS["green"]}Total elapsed time: {elapsed_time:,.2f} seconds or ({elapsed_time/60:.2f} minutes).{PRINT_COLORS["end"]}")
 
-def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profile:str="default", SSP_base:str="SSP2", net_emissions:bool=True):
+def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profile:str="default", SSP_base:str="SSP2", convergence_year:int=2150, net_emissions:bool=True):
     # pre:
     # - population, GDP, and emissions gridded data must be pre-processed and available for the given sources and versions (run main.py -- process_grid_data)
     # - GADM region raster must be created for the given model and resolution (run main.py -- create_GAMD_region_raster)
@@ -612,7 +612,7 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
 
     base_year = settings_downscaling.base_year
     years_downscaling = settings_downscaling.years_downscaling
-    convergence_year = settings_downscaling.convergence_year
+    #convergence_year = settings_downscaling.convergence_year
     method_extension = settings_downscaling.method_extension
     #vars_downscaling = settings_downscaling.vars_downscaling
     process_flags = settings_downscaling.process_flags
@@ -638,19 +638,18 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     # create output and processed directories
     print(f"Project directory: {project_dir}")
     gross_net = "net" if net_emissions else "gross"
-    #source_version_grid = f"{source_POP}_{version_POP}_{source_GDP}_{version_GDP}_{source_EM}_{version_EM}_{gross_net}"
-    model_scenario = f"{model}_{scenario}"
+    model_scenario_convergence_year = f"{model}_{scenario}_conv_year_{convergence_year}_{gross_net}"
     dir_output = project_dir / "data" / "output"
-    #dir_processed = project_dir / "data" / "processed" / profile / source_version_grid / model_scenario
-    dir_processed = project_dir / "data" / "processed" / profile / model_scenario
+    dir_processed = project_dir / "data" / "processed" / profile / model_scenario_convergence_year
     print(f"Output directory: {dir_output}")
     print(f"Processed data directory: {dir_processed}")
     dir_output.mkdir(parents=True, exist_ok=True)
     dir_processed.mkdir(parents=True, exist_ok=True)
     dir_urban = project_dir / "data" / "processed" / "DLL"
+    log_path = dir_processed / "log"
+    log_path.mkdir(parents=True, exist_ok=True)
 
-    log_path = f"{project_dir}/log/downscaling"
-    debug_log, results_log = init_logging(f"downscaling_emissions_{profile}_{model_scenario}", log_path)
+    debug_log, results_log = init_logging(f"downscaling_emissions_{profile}_{model_scenario_convergence_year}", str(log_path))
     debug_log.info(f"\n\n{PRINT_COLORS['purple']}{'|'*100}{PRINT_COLORS['end']}")
     debug_log.info(f"{PRINT_COLORS['purple']}Logging for profile {profile}, scenario {scenario}, model {model} started{PRINT_COLORS['end']}")
     debug_log.info(f"{PRINT_COLORS['purple']}{SOURCE_PROFILES[profile]}{PRINT_COLORS['end']}")
@@ -962,6 +961,10 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
 
     one_unit_IAM_model_GDP_PPP = process_IAM_data.model_unit_conversions[model]["GDP|PPP"]
     one_unit_IAM_model_em = process_IAM_data.model_unit_conversions[model]["Emissions|CO2"]
+    # check if convergence year is multile of 10
+    if convergence_year % 10 != 0:
+        debug_log.info(f"{PRINT_COLORS["red"]}Convergence year {convergence_year} is not a multiple of 10. Please choose a convergence year that is a multiple of 10.{PRINT_COLORS["end"]}")
+        raise ValueError(f"Convergence year {convergence_year} is not a multiple of 10. Please choose a convergence year that is a multiple of 10.")
     df_IAM_GDP = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_GDP, one_unit_IAM_model_GDP_PPP, convergence_year, method_extension, debug_log)
     df_IAM_EM = process_IAM_data.extrapolate_IAM_values_to_convergence_year(dir_processed, df_IAM_EM, one_unit_IAM_model_em, convergence_year, method_extension, debug_log)
     csv_file_GDP = dir_processed / f"IAM_{model}_{scenario}_gdp_ppp_downscaling_extended.csv"
@@ -1132,10 +1135,9 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     combined_em_unharmonised_path = dir_output / combined_em_unharmonised_file
     combined_em_harmonised_file =  f"Emissions_urban_region_{scenario}_{profile}_harmonised.nc"
     combined_em_harmonised_path = dir_output / combined_em_harmonised_file
-    bool_combined_em_files = combined_em_unharmonised_path.is_file() and combined_em_harmonised_path.is_file()
-    # TO DO --> check emissions grids that are not in the polygons, but are in IAM regions
+    # TO DO --> check emissions grids that are not in the polygons, but are in IAM regions (is currently processed in Google Earth Engine, but not in this script)
     # 2.4.1 Calculate or read unharmonised and harmonised urban emissions
-    if process_flags["process_urban_classification_emissions"] or not bool_combined_em_files:
+    if process_flags["process_urban_classification_emissions"] or not (combined_em_unharmonised_path.is_file() and combined_em_harmonised_path.is_file()):
         debug_log.info(f"\n\n(({(time.time()-start_time)/60:,.1f} mins): {profile}-{scenario}-{gross_net}: {PRINT_COLORS["green"]}Calculating urban emissions...{PRINT_COLORS["end"]}")
         # add regions to xr_em
         xr_emissions_regions_unharmonised = xr_emissions_harmonised.copy()
@@ -1331,7 +1333,7 @@ def downscale_emissions(project_dir:Path, scenario:str, model:str="IMAGE", profi
     except Exception:
         pass
 
-def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = "default", net_emissions:bool=True, global_min:float|None=None, global_max:float|None=None):
+def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = "default", SSP_base:str="SSP2", convergence_year:int=2050, net_emissions:bool=True, global_min:float|None=None, global_max:float|None=None):
     '''
     Plot results of downscaling for a given scenario, model, and profile.
     1. compare IAM and grid data for population, GDP, and emissions for historical and projected data
@@ -1350,7 +1352,6 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     '''
 
     from shapely.ops import unary_union  # add alongside the other imports
-    debug_log, results_log = init_logging(f"log_downscaling_{profile}_{model}_{scenario}", "log/plotting")
 
     if profile not in settings_downscaling.SOURCE_PROFILES:
         available = list(settings_downscaling.SOURCE_PROFILES.keys())
@@ -1369,7 +1370,7 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     varname_POP = settings_downscaling.varname_POP
     varname_EM = settings_downscaling.varname_EM
 
-    SSP_base = settings_downscaling.SSP_base
+    #SSP_base = settings_downscaling.SSP_base
 
     vars_downscaling = settings_models.models[model]["vars_downscaling"]
 
@@ -1379,10 +1380,14 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     project_dir = Path(__file__).parent.parent
     print(f"\nProject directory: {project_dir}")
     gross_net = "net" if net_emissions else "gross"
-    model_scenario = f"{model}_{scenario}"
-    dir_processed = project_dir / "data" / "processed" / profile / model_scenario
-    #print(f"Output directory: {dir_output}")
+    model_scenario_convergence_year = f"{model}_{scenario}_conv_year_{convergence_year}_{gross_net}"
+    dir_processed = project_dir / "data" / "processed" / profile / model_scenario_convergence_year
     print(f"Processed data directory: {dir_processed}")
+
+    log_path = dir_processed / "log"
+    log_path.mkdir(parents=True, exist_ok=True)
+
+    debug_log, results_log = init_logging(f"log_plot_{profile}_{model}_{scenario}_{convergence_year}", str(log_path))
 
     coarse_factor_POP, coarse_factor_GDP, coarse_factor_EM, res_min_POP, res_min_GDP, res_min_EM = process_grid_data.get_coarsening_factors(population_source=source_POP,gdp_source=source_GDP,emissions_source=source_EM)
     coarse_factor_POP_str = f"{format_factor(coarse_factor_POP)}"
@@ -1394,13 +1399,13 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     # READ IN DATA
 
     # files for processed grid data
-    pop_file = dir_processed / f"Population_{source_POP}_{version_POP}_{SSP_base}_cf_{coarse_factor_POP_str}.nc"
-    gdp_ppp_file = dir_processed / f"GDP_PPP_{source_GDP}_{version_GDP}_{SSP_base}_cf_{coarse_factor_GDP_str}.nc"
-    em_file = dir_processed / f"{replace_punctuation_in_filenames(varname_EM)}_hist_{source_EM}_{version_EM}_{SSP_base}_cf_{coarse_factor_EM_str}.nc"
-    pop_processed_file = dir_processed / f"Population_processed_{source_POP}_{version_POP}_{SSP_base}_cf_{coarse_factor_POP_str}.nc"
-    gdp_ppp_processed_file = dir_processed / f"GDP_PPP_processed_{source_GDP}_{version_GDP}_{SSP_base}_cf_{coarse_factor_GDP_str}.nc"
+    pop_file = dir_processed.parent / f"Population_{source_POP}_{version_POP}_{SSP_base}_cf_{coarse_factor_POP_str}.nc"
+    gdp_ppp_file = dir_processed.parent / f"GDP_PPP_{source_GDP}_{version_GDP}_{SSP_base}_cf_{coarse_factor_GDP_str}.nc"
+    em_file = dir_processed.parent / f"{replace_punctuation_in_filenames(varname_EM)}_hist_{source_EM}_{version_EM}_{SSP_base}_cf_{coarse_factor_EM_str}.nc"
+    pop_processed_file = dir_processed.parent / f"Population_processed_{source_POP}_{version_POP}_{SSP_base}_cf_{coarse_factor_POP_str}.nc"
+    gdp_ppp_processed_file = dir_processed.parent / f"GDP_PPP_processed_{source_GDP}_{version_GDP}_{SSP_base}_cf_{coarse_factor_GDP_str}.nc"
     em_harmonised_file = dir_processed / f"{replace_punctuation_in_filenames(varname_EM)}_harmonised_{SSP_base}.nc"
-    #file_path_file_model_grid_regions = project_dir / f"data/input/models/{model}/{file_model_grid_regions}"
+    em_harmonised_file = dir_processed / f"{replace_punctuation_in_filenames(varname_EM)}_harmonised_{SSP_base}.nc"
     file_path_file_model_grid_regions = determine_regions_file(project_dir, res_min_POP, res_min_GDP, res_min_EM, model, debug_log)
 
     figures_dir = dir_processed / "figures"
@@ -1420,7 +1425,6 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     print(f"{PRINT_COLORS["green"]}Resolution: degrees-{arc_degrees_gdp_ppp:.2f},  minutes-{arc_minutes_gdp_ppp:.2f}, seconds-{arc_seconds_gdp_ppp:.2f}{PRINT_COLORS["end"]}")
     arc_seconds_em, arc_minutes_em, arc_degrees_em = process_grid_data.calculate_resolution(xr_emissions_proj[varname_EM])
     print(f"{PRINT_COLORS["green"]}Resolution: degrees-{arc_degrees_em:.2f},  minutes-{arc_minutes_em:.2f}, seconds-{arc_seconds_em:.2f}{PRINT_COLORS["end"]}")
-
 
     path_urban_classification = project_dir / "data" / "output" / f"Emissions_urban_region_{scenario}_{profile}_harmonised.nc"
     xr_urban_classification = xr.open_dataset(path_urban_classification, decode_coords="all")
@@ -1446,10 +1450,8 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
     df_IAM_EM_harm = pd.concat([df_IAM_EM, extra_rows], ignore_index=True).sort_values(["year", "region_number"]).reset_index(drop=True)
     xr_emissions_proj[varname_EM] = xr_emissions_proj[varname_EM] * 10**-6
 
-    # TO DO
-
     # 2. plot maps for population, GDP, and emissions for historical and projected data print(f"directory: {project_dir.resolve()}")
-    plot = plot_maps.plot_IPAT_summary(dir_processed, f"{profile}_{model}_{scenario}",
+    plot = plot_maps.plot_IPAT_summary(dir_processed, f"{profile}_{model}_{scenario}_{convergence_year}",
                       xr_population_hist, xr_gdp_ppp_hist, xr_emissions_hist,
                       xr_population_proj, xr_gdp_ppp_proj, xr_emissions_proj,
                       varname_POP, varname_GDP, varname_EM,
@@ -1465,9 +1467,9 @@ def plot_results(scenario:str = "ELV-SSP2-CP", model:str="IMAGE", profile:str = 
 
     plot_maps.plot_hist_map(dir_processed, xr_population_hist, f"_{source_POP}_{scenario}", varname_POP, 2020)
     plot_maps.plot_hist_map(dir_processed, xr_gdp_ppp_hist, f"_{source_GDP}_{scenario}", varname_GDP, 2020)
-    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}", varname_EM, 2020)
-    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}", varname_EM, 2030)
-    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}", varname_EM, 2050)
+    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}_{convergence_year}", varname_EM, 2020)
+    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}_{convergence_year}", varname_EM, 2030)
+    plot_maps.plot_hist_map(dir_processed, xr_emissions_proj, f"_{profile}_{model}_{scenario}_{convergence_year}", varname_EM, 2050)
 
     fig_2020, ax, pm = plot_maps.plot_Mercator_projection(xr_emissions_proj[varname_EM].sel(time=2020),
                                                             ax=None, coarsen=12, transform="linear", show=False, title=None,

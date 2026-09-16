@@ -187,8 +187,13 @@ def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, 
     Read TIFF files and combine them into a NetCDF while preserving all metadata including CRS.
     """
 
-    files = sorted(data_dir.glob(glob_pattern))
-    log.info(f"Found {len(files)} files matching {glob_pattern}")
+    files = []
+    for f in sorted(data_dir.glob(glob_pattern)):
+        if re.search(search_pattern, f.name) is None:
+            log.info(f"Skipping file without a year: {f.name}")
+            continue
+        files.append(f)
+    log.info(f"Found {len(files)} files matching {glob_pattern} with a year")
 
     # Store metadata from the first file (assuming all files have consistent metadata)
     data_list, years, opened = [], [], []
@@ -198,6 +203,7 @@ def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, 
             warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
             for i, f in enumerate(files):
                 #log.info(f"Reading file: {f.name}")
+                print(f"Reading file: {f.name}")
                 year = int(re.search(search_pattern, f.name).group(1))
                 years.append(year)
 

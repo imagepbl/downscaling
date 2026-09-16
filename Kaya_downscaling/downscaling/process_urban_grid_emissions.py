@@ -239,18 +239,20 @@ def create_urban_id_raster(gdf_urban_classification: gpd.GeoDataFrame, ds_ref: x
 
     return ids
 
-def plot_urba_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str, log: logging.Logger=dummy_log) -> None:
-    ds_check = xr_urban.sel(time=2020)
+def plot_urban_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str, log: logging.Logger=dummy_log) -> None:
+
+    ds_check = xr_urban.isel(time=0)
     xr_check = ds_check[varname]
+    year = ds_check["time"].values
     urban = ds_check["urban"]
-    print(f"{PRINT_COLORS['yellow']}Check: unique 2020 urban values: {np.unique(urban.values)}{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS['yellow']}Check: unique {year} urban values: {np.unique(urban.values)}{PRINT_COLORS['end']}")
     check_urban_null = float(xr_check.where(urban.isnull()).sum())
     check_total_urban = float(xr_check.where(urban==1).sum())
     check_perc_urban_null = check_urban_null / (check_urban_null + check_total_urban) * 100
-    print(f"{PRINT_COLORS['yellow']}Check: 2020 urban emissions unharmonised: urban_null={check_urban_null:,.0f}, total_urban={check_total_urban:,.0f}, percentage_null={check_perc_urban_null:.2f}%{PRINT_COLORS['end']}")
+    print(f"{PRINT_COLORS['yellow']}Check: {year} urban emissions unharmonised: urban_null={check_urban_null:,.0f}, total_urban={check_total_urban:,.0f}, percentage_null={check_perc_urban_null:.2f}%{PRINT_COLORS['end']}")
 
-    ds_2020 = xr_urban.sel(time=2020)
-    em_na = ds_2020[varname].where(ds_2020["urban"].isnull())
+    ds_year = xr_urban.isel(time=0)
+    em_na = ds_year[varname].where(ds_year["urban"].isnull())
     pts = em_na.stack(cell=("y", "x")).dropna("cell")
     xs, ys = pts["x"].values, pts["y"].values
     fig = plt.figure(figsize=(16, 8))
@@ -264,8 +266,34 @@ def plot_urba_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str,
     plt.tight_layout()
     fig.savefig(plot_dir / f"emissions_urban_na_2020{add_txt}.png", dpi=150, bbox_inches="tight")
 
+def plot_urban_rural_map(plot_dir: Path, xr_combined:xr.Dataset, varname:str, add_txt:str, log: logging.Logger=dummy_log) -> None:
+
+    y_dim, x_dim = xr_combined.rio.y_dim, xr_combined.rio.x_dim
+    urban = xr_combined["urban"].isel(time=0)
+    year = urban["time"].values
+
+    fac_y = max(1, urban.sizes[y_dim] // 1500)
+    fac_x = max(1, urban.sizes[x_dim] // 1500)
+    urban_sub = urban.isel({y_dim: slice(None, None, fac_y),
+                            x_dim: slice(None, None, fac_x)}).compute()
+
+    fig, ax = plt.subplots(figsize=(16, 8))
+    urban_sub.plot(ax=ax, levels=[-0.5, 0.5, 1.5], colors=["#dddddd", "#cc3311"], add_colorbar=False)
+    ax.set_title("Urban vs non-urban mask")
+    ax.legend(handles=[Patch(facecolor="#cc3311", label="urban (==1)"),
+                    Patch(facecolor="#dddddd", label="rural / non-urban (==0)"),
+                    Patch(facecolor="white", edgecolor="#999999",
+                            label="NaN (outside polygons)")],
+            title="class (urban value)", loc="lower left")
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    add_txt_plot = add_txt[1:] if add_txt.startswith("_") else add_txt
+    ax.set_title(f"{year} values for urban vs rural: {add_txt_plot.lstrip('_')}")
+    plt.tight_layout()
+    plt.savefig(plot_dir / f"urban_mask_map_{add_txt}.png", dpi=150, bbox_inches="tight")
+
 def _rasterize_urban_value(gdf: gpd.GeoDataFrame, cluster_col: str, ds_ref: xr.Dataset,
-                           ids: np.ndarray | None = None) -> xr.DataArray:
+                            ids: np.ndarray | None = None) -> xr.DataArray:
     '''
     Map each polygon's cluster_col value (1.0 urban, 0.0 non-urban) onto the grid of ds_ref through a 1-based
     polygon id grid; cells outside every polygon get NaN. If ids is supplied (from create_urban_id_raster) it is
@@ -330,10 +358,15 @@ def aggregate_urban_values(project_dir: Path,
     rows = []
     nr_regions = np.unique(xr_combined[region_varname].values).size
     print(f"Counting cells per region (1..{nr_regions})...")
+    region = xr_combined[region_varname]
+    if "time" in region.dims:
+        region = region.isel(time=0)
     for r in range(1, nr_regions):
-        total = int((xr_combined[region_varname] == r).sum().compute())
-        urban = int(((xr_combined[region_varname] == r) & (xr_combined["urban"].isel(time=0) == 1)).sum().compute())
-        rural = int(((xr_combined[region_varname] == r) & (xr_combined["urban"].isel(time=0) == 0)).sum().compute())
+        in_region = (region == r)
+        urban_mask = xr_combined["urban"].isel(time=0) == 1
+        total = int(in_region.sum().compute())
+        urban = int((in_region & urban_mask).sum().compute())
+        rural = int((in_region & ~urban_mask).sum().compute())
         rows.append({"region": r, "total": total, "urban": urban, "rural": rural})
     df_cell_counts = pd.DataFrame(rows)
     log.info(f"Cell counts per region:\n{tabulate(df_cell_counts, headers="keys", tablefmt="grid", intfmt=",", showindex=False)}")
@@ -341,7 +374,8 @@ def aggregate_urban_values(project_dir: Path,
 
     plot_dir = project_dir / "figures" / "check"
     plot_dir.mkdir(parents=True, exist_ok=True)
-    plot_urba_nan(plot_dir, xr_combined, varname, add_txt, log=log)
+    plot_urban_nan(plot_dir, xr_combined, varname, add_txt, log=log)
+    plot_urban_rural_map(plot_dir, xr_combined, varname, add_txt, log=log)
 
     return xr_combined
 

@@ -136,7 +136,7 @@ unit_EM      = "tonnes CO2/year"
 # ---------------------------------------------------------------------------
 #SSP_base          = "SSP2"
 base_year         = 2020
-convergence_year  = 2150
+#convergence_year  = 2150
 method_extension  = 2  # 1: growth rate from last two steps, 2: zero growth rate
                        # 3: growth rate to near-zero at convergence year, 4: absolute growth rate
 

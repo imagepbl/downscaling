@@ -173,6 +173,7 @@ if __name__ == "__main__":
     parser.add_argument("--process_grid_data_source", action="store_true", help="process datasets based on source")
     parser.add_argument("--process_urban_classification", action="store_true", help="process urban classification data")
     parser.add_argument("--ssp_baseline", type=str, help="baseline scenario from SSP")
+    parser.add_argument("--convergence_year", type=int, help="year of convergence")
     parser.add_argument("--driver", type=str, help="driver for the data (Population, GDP_PPP, Emissions)")
     parser.add_argument("--source", type=str, help="data source (e.g. 2UP, Murakami, EDGAR)")
     parser.add_argument("--version", type=str, help="data version (e.g. version_7, version_2021_1, 2025_04_18)")
@@ -252,13 +253,15 @@ if __name__ == "__main__":
             parser.error("--scenario requires a scenario to be specified and/or --profile requires a profile to be specified")
         if arguments.ssp_baseline is None:
             parser.error("--downscale_emissions requires a SSP baseline scenario to be specified with --ssp_baseline")
+        if arguments.convergence_year is None:
+            parser.error("--downscale_emissions requires a convergence year to be specified with --convergence_year")
         if arguments.emissions not in ["net", "gross"]:
             parser.error("--emissions requires a value of 'net' or 'gross'")
         elif arguments.emissions == "net":
             net_emissions = True
         else:
             net_emissions = False
-        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, net_emissions)
+        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, int(arguments.convergence_year), net_emissions)
 
     # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:
@@ -277,9 +280,9 @@ if __name__ == "__main__":
         else:
             net_emissions = False
         if arguments.global_min is None or arguments.global_max is None:
-            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, net_emissions, None, None)
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, None, None)
         else:
-            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, net_emissions, float(arguments.global_min), float(arguments.global_max))
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, float(arguments.global_min), float(arguments.global_max))
     # TOOLS
     # upload results to Google Earth Engine
     if hasattr(arguments, 'upload') and arguments.upload is True:
