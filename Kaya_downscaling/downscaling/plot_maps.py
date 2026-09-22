@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib
@@ -14,6 +15,7 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.colors import ListedColormap
 import seaborn as sns
 
+import geopandas as gpd
 import xarray as xr
 import rioxarray as rxr
 import rasterio
@@ -21,13 +23,17 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from rasterio.transform import from_bounds
 
+from tools.functions_logging import init_logging
 from tools.general_functions import replace_punctuation_in_filenames
 import downscaling.read_process_IAM_data as process_IAM_data
 import downscaling.process_IPAT_factors as process_IPAT_factors
+import downscaling.read_process_grid_data as process_grid_data
 
 from pathlib import Path
 import numpy as np
 import rasterio
+
+local_log, _ = init_logging("log", "log/plotting")
 
 def check_geotiff(tif_file: Path) -> None:
     print(f"\nChecking GeoTIFF: {tif_file}")
@@ -104,6 +110,7 @@ def save_to_grid_tiff(dir_processed:Path,
     transform = from_bounds(west=west, south=south, east=east, north=north,
                             width=width, height=height)
 
+    tif_file = None
     for year in years:
         data = xr_grid[varname].sel(time=year).values.astype(np.float32)
         # Ensure data is ordered north-to-south to match the transform
@@ -136,6 +143,154 @@ def save_to_grid_tiff(dir_processed:Path,
 
     return tif_file
 
+def _slice(coord, lo, hi):
+    return slice(hi, lo) if coord[0] > coord[-1] else slice(lo, hi)
+
+def _plot_urban_class_zoom(project_dir:Path, cat:xr.DataArray,
+                          ISO:str, model:str, scenario:str, profile:str, conv_year:int,
+                          years_present:list,
+                          zoom_factor:float, center_x:float=0.5, center_y:float=0.5,
+                          log:logging.Logger=local_log) -> None:
+    """
+    Zoomed version of plot 2 (urban/rural/no-class classification).
+
+    center_x, center_y : float in [0, 1]
+        Fractional position of the zoom centre within the data extent.
+        (0, 0) = top/left
+        center_x: 0 = left (west),  1 = right (east)
+        center_y: 0 = top (north),  1 = bottom (south)
+    zoom_factor : float
+        >1 zooms in. 2 -> half the width and half the height, centred.
+    """
+    x = cat["x"].values
+    y = cat["y"].values
+    x_min, x_max = float(x.min()), float(x.max())
+    y_min, y_max = float(y.min()), float(y.max())
+
+    cx = x_min + center_x * (x_max - x_min)
+    cy = y_max - center_y * (y_max - y_min)
+
+    half_w = (x_max - x_min) / zoom_factor / 2
+    half_h = (y_max - y_min) / zoom_factor / 2
+
+    x_slice = _slice(x, cx - half_w, cx + half_w)
+    y_slice = _slice(y, cy - half_h, cy + half_h)
+
+    cat_zoom = cat.sel(x=x_slice, y=y_slice)
+
+    if cat_zoom["x"].size == 0 or cat_zoom["y"].size == 0:
+        log.info(f"Zoom window is empty for {ISO} (factor={zoom_factor}, "
+                 f"center=({center_x}, {center_y})), skipping zoom plot.")
+        return
+
+    # Same colour scheme as plot 2
+    cmap = ListedColormap(["#4daf4a", "#e41a1c", "#ffd700"])  # rural, urban, unknown
+    cmap.set_bad("white")
+    norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5], cmap.N)
+
+    if "time" in cat_zoom.dims:
+        p = (cat_zoom.plot
+             .imshow(col="time", col_wrap=min(len(years_present), 2), figsize=(14, 12),
+                     cmap=cmap, norm=norm, interpolation="nearest",
+                     cbar_kwargs={"ticks": [0, 1, 2], "label": "Urban classification"}))
+    else:
+        p = cat_zoom.plot.imshow(figsize=(10, 10), cmap=cmap, norm=norm, interpolation="nearest",
+                                 cbar_kwargs={"ticks": [0, 1, 2], "label": "Urban classification"})
+
+    # FacetGrid exposes .cbar; a single-panel plot exposes .colorbar on the artist
+    cbar = getattr(p, "cbar", None) or getattr(p, "colorbar", None)
+    if cbar is not None:
+        cbar.set_ticklabels(["Rural (0)", "Urban (1)", "No class (NaN)"])
+
+    fig = p.fig if hasattr(p, "fig") else p.axes.figure
+    path_fig = (project_dir / "figures" /
+                f"urban_class_zoom_{ISO}_{model}_{scenario}_{profile}_{conv_year}.png")
+    fig.savefig(path_fig, dpi=200, bbox_inches="tight")
+    log.info(f"Saved zoomed urban classification figure to {path_fig}")
+
+    # plot 3 (zoomed-in version of plot 2) --> 0=top
+    _plot_urban_class_zoom(project_dir, cat, ISO, model, scenario, profile, conv_year, years_present, zoom_factor=2.0, center_x=0.5, center_y=0.4)
+
+def plot_em_urban_unharmonised_country(project_dir:Path, profile:str, model:str, scenario:str, conv_year:int,
+                                       ISO:str, xr_em_urban_unharmonised:xr.Dataset, varname_em:str, xr_IAM_grid:xr.Dataset, varname_country_id:str,
+                                       gdf_urban_classification:gpd.GeoDataFrame, log:logging.Logger=local_log) -> None:
+
+    arc_seconds_em, arc_minutes_em, arc_degrees_em = process_grid_data.calculate_resolution(xr_em_urban_unharmonised[varname_em])
+    log.info(f"Urban emissions data resolution: {arc_seconds_em} arc-seconds, {arc_minutes_em} arc-minutes, {arc_degrees_em} degrees\n")
+    arc_seconds_em, arc_minutes_em, arc_degrees_em = process_grid_data.calculate_resolution(xr_IAM_grid[varname_country_id])
+    log.info(f"IAM grid data resolution: {arc_seconds_em} arc-seconds, {arc_minutes_em} arc-minutes, {arc_degrees_em} degrees\n")
+
+    res = abs(float(xr_em_urban_unharmonised["x"][1] - xr_em_urban_unharmonised["x"][0]))
+    log.info(f"Urban emissions data resolution (x): {res} degrees")
+    res = abs(float(xr_em_urban_unharmonised["y"][1] - xr_em_urban_unharmonised["y"][0]))
+    log.info(f"Urban emissions data resolution (y): {res} degrees")
+    xr_IAM_grid_aligned = xr_IAM_grid.reindex_like(xr_em_urban_unharmonised, method="nearest", tolerance=res/2)
+    #xr_IAM_grid_aligned = xr_IAM_grid.copy()
+    xr_em_country = xr_em_urban_unharmonised.assign(GADM_country_id=xr_IAM_grid_aligned[varname_country_id])
+    log.info(f"\nPlotting unharmonised urban emissions for country {ISO} ...")
+
+    # Retrieve corresponding GADM id
+    dir_GAM = project_dir / "data" / "processed" / "GADM"
+    file = "id_to_iso_mapping.csv"
+    path_GADM_id_to_iso = dir_GAM / file
+    df_GADM_id_to_iso = pd.read_csv(path_GADM_id_to_iso, sep=";")
+    GADM_country_id = df_GADM_id_to_iso.loc[df_GADM_id_to_iso["ISO"]==ISO, "id"].values[0]
+    GADM_country = df_GADM_id_to_iso.loc[df_GADM_id_to_iso["ISO"]==ISO, "NAME"].values[0]
+    log.info(f"Corresponding GADM id for {ISO}: {GADM_country_id}, Country: {GADM_country}")
+
+    years_wanted = [2020, 2030, 2040, 2050]
+    years_present = [y for y in years_wanted if y in xr_em_country["time"].values]
+    if not years_present:
+        log.info(f"None of {years_wanted} present for {ISO}, skipping plot.")
+        return
+    # selections for plot
+    mask = xr_em_country["GADM_country_id"] == GADM_country_id
+    y_vals = mask["y"].values[mask.any("x").values]
+    x_vals = mask["x"].values[mask.any("y").values]
+    y_slice = _slice(xr_em_country["y"].values, y_vals.min(), y_vals.max())
+    x_slice = _slice(xr_em_country["x"].values, x_vals.min(), x_vals.max())
+
+    da_country = (xr_em_country[varname_em]
+                .sel({"time": years_present})
+                .sel(y=y_slice, x=x_slice)
+                .where(mask.sel(y=y_slice, x=x_slice)))
+
+    # plot 1
+    facet = da_country.plot.imshow(col="time", col_wrap=min(len(years_present), 2), robust=True,
+                                figsize=(14, 12), interpolation="nearest", cbar_kwargs={"label": varname_em})
+    path_fig = project_dir / "figures" / f"em_urban_unharmonised_{ISO}_{model}_{scenario}_{profile}_{conv_year}.png"
+    facet.fig.savefig(path_fig, dpi=200, bbox_inches="tight")
+    log.info(f"Saved figure to {path_fig}")
+
+    # plot 2
+    if not "urban" in xr_em_country:
+        log.info(f"No 'urban' variable found in xr_em_country for {ISO}, skipping urban/rural plot.")
+        return
+    urban = xr_em_country["urban"]
+    if "time" in urban.dims:
+        urban = urban.sel({"time": years_present})
+    urban = urban.sel(y=y_slice, x=x_slice)
+
+    # 0 rural, 1 urban, 2 urban-NaN inside the country; outside country stays NaN
+    cat = xr.where(urban.isnull(), 2, urban).where(mask.sel(y=y_slice, x=x_slice))
+    cmap = ListedColormap(["#4daf4a", "#e41a1c", "#ffd700"])  # rural, urban, unknown
+    cmap.set_bad("white")  # outside the country
+    norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5], cmap.N)
+    if "time" in cat.dims:
+        p = (cat.plot
+            .imshow(col="time", col_wrap=min(len(years_present), 2), figsize=(14, 12),
+                    cmap=cmap, norm=norm, interpolation="nearest",
+                    cbar_kwargs={"ticks": [0, 1, 2], "label": "Urban classification"}))
+    else:
+        p = cat.plot.imshow(figsize=(10, 10), cmap=cmap, norm=norm, interpolation="nearest",
+                            cbar_kwargs={"ticks": [0, 1, 2], "label": "Urban classification"})
+
+    p.cbar.set_ticklabels(["Rural (0)", "Urban (1)", "No class (NaN)"])
+
+    path_fig = project_dir / "figures" / f"urban_class_{ISO}_{model}_{scenario}_{profile}_{conv_year}.png"
+    p.fig.savefig(path_fig, dpi=200, bbox_inches="tight")
+    log.info(f"Saved urban classification figure to {path_fig}")
+
 def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", resolution_minutes: float = 0.5) -> None:
     """
     For each CHECK_REGIONS bounding box, plot country_id_GADM and region_number
@@ -160,7 +315,7 @@ def plot_coast_checks(gadm_tif_path: Path, output_path: Path, add_text:str="", r
         "Denmark_Wadden_Sea":           (7.0,   13.0,  54.0, 58.0),
         "Peru_Lima_Coast":              (-80.0, -74.0, -14.0, -10.0)}
 
-    print(f"Reading GADM raster: {gadm_tif_path}")
+    log.info(f"Reading GADM raster: {gadm_tif_path}")
     # Open lazily — only clip regions are loaded into memory
     ds = rxr.open_rasterio(gadm_tif_path, chunks="auto", lock=False)
 

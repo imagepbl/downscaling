@@ -601,15 +601,6 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                     da_coarsened = da.rio.reproject(dst_crs=crs, resolution=(new_res_x, new_res_y), resampling=resampling_method)
                     sum_after = float(da_coarsened.sum().compute())
                     rel_diff = abs(sum_after - sum_before) / abs(sum_before) if sum_before != 0 else 0.0
-                    # TO DO --> renomalise with
-                    #   da_coarsened = da_coarsened * (sum_before / sum_after)
-                    #   per region
-                    # da_region = xr_IAM_regions_coarse["region_number"].load()
-                    # sum_before_region = da.groupby(xr_IAM_regions_grid["region_number"].load()).sum().compute()
-                    # sum_after_region = da_coarsened.groupby(da_region).sum().compute()
-                    # factors = (sum_before_region / sum_after_region).where(sum_after_region != 0, 1.0)
-                    # factor_grid = factors.sel(region_number=da_region)
-                    # da_coarsened = da_coarsened * factor_grid
 
                     log.info(f"Sum before: {sum_before:,}, after: {sum_after:,}, rel. diff: {100*rel_diff:.2}%")
                     if rel_diff > 0.01:
@@ -736,11 +727,12 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
                         filepath.unlink()
 
                     #--------------------------------
-                    # ADD VERIFICATION HERE - Check what we're about to save
+                    # VERIFICATION
                     log.info(f"\t=== PRE-SAVE VERIFICATION ===")
                     log.info(f"\tCRS before save: {ds_coarsened_netcdf[varname].rio.crs}")
                     info = print_transform(ds_coarsened_netcdf.rio.transform(), log)
                     log.info(info)
+                    log.info(f"\tTransform before save: {ds_coarsened_netcdf.rio.transform()}")
                     log.info(f"\tNoData before save: {ds_coarsened_netcdf[varname].rio.nodata}")
                     log.info(f"\tHas spatial_ref: {'spatial_ref' in ds_coarsened_netcdf.coords}")
                     if 'spatial_ref' in ds_coarsened_netcdf.coords:

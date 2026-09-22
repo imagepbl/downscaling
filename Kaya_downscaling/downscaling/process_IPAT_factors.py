@@ -176,10 +176,12 @@ def check_location_for_GDP_per_pop_calculation(ds:xr.Dataset, varname):
         print(f"{city_name}: GDP per capita = {gdp_value}")
         print(f"  Actual coordinates: lat={actual_y}, lon={actual_x}")
 
-def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_ppp_processed, varname_POP, varname_GDP):
+def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_ppp_processed, varname_POP, varname_GDP, log:logging.Logger=local_log):
 
+    log.info("Checking alignment between population and GDP (PPP) datasets ...")
     save_dir = dir_processed / "check"
     save_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"Saving check results to: {save_dir}")
 
     gdp = xr_gdp_ppp_processed[varname_GDP]
     population = xr_population_processed[varname_POP]
@@ -187,9 +189,6 @@ def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_
     # determine values where GDP is a number (not NaN or zero) and population is NaN, zero, or a number
     valid_mask = (gdp != 0) & gdp.notnull()
     valid_mask_computed = valid_mask.compute()
-
-    pop_vals = population.values[valid_mask_computed.values]
-    gdp_vals = gdp.values[valid_mask_computed.values]
 
     df = pd.DataFrame({"population": population.values[valid_mask.values],
                        "gdp": gdp.values[valid_mask.values]})
@@ -244,7 +243,7 @@ def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_
     plt.tight_layout()
     save_path = save_dir / "population_gdp_alignment.png"
     plt.savefig(save_path)
-
+    log.info(f"Saved population-GDP alignment plot to: {save_path}")
 
 def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
                             varname_population:str, varname_gdp_ppp:str,
@@ -263,15 +262,15 @@ def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
     #ds_gdp_aligned = ds_gdp_ppp.copy()
 
     ds_population_downscaling = ds_population.interp(time=years_downscaling, method="linear")
-    log.info(f"(process_factors_GDP_POP) Years in population grid aligned with downscaling years: {ds_population_downscaling.time.values}")
+    log.info(f"Years in population grid aligned with downscaling years: {ds_population_downscaling.time.values}")
     ds_gdp_ppp_downscaling = ds_gdp_ppp.interp(time=years_downscaling, method="linear")
-    log.info(f"(process_factors_GDP_POP) Years in GDP (PPP) grid aligned with downscaling years: {ds_gdp_ppp_downscaling.time.values}")
+    log.info(f"Years in GDP (PPP) grid aligned with downscaling years: {ds_gdp_ppp_downscaling.time.values}")
 
     # check
     total_pop_2020 = ds_population_downscaling[varname_population].sel(time=2020).sum().compute().item()
     total_gdp_2020 = ds_gdp_ppp_downscaling[varname_gdp_ppp].sel(time=2020).sum().compute().item()
-    log.info(f"(process_factors_GDP_POP) 1.Total population: {total_pop_2020:,.0f}")
-    log.info(f"(process_factors_GDP_POP) 1.Total GDP (PPP): {total_gdp_2020:,.0f}")
+    log.info(f"1.Total population: {total_pop_2020:,.0f}")
+    log.info(f"1.Total GDP (PPP): {total_gdp_2020:,.0f}")
 
     # 1. align coordinates with emissions grid (aligned)
     #ds_population_adjusted = ds_population_downscaling.copy().reindex_like(xr_emissions.sel(time=base_year), method="nearest", tolerance=1e-5)
@@ -282,18 +281,16 @@ def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
     ds_gdp_adjusted = ds_gdp_ppp_downscaling.reindex_like(ds_population_adjusted.sel(time=base_year), method="nearest", tolerance=tolerance_gdp)
 
     # 3.set population to 1 where population is nan and gdp is not nan (adjusted)
-    #ds_population_adjusted = ds_population_downscaling.copy()
-    #ds_gdp_adjusted = ds_gdp_ppp_downscaling.copy()
     mask_pop_nan = (ds_population_adjusted[varname_population].isnull()) & (ds_gdp_adjusted[varname_gdp_ppp]>0)
     total_pop_2020 = None
     check_pop = None
     num_cells_pop_nan_gdp_not_nan_2020 = None
     if check:
-        log.info("(process_factors_GDP_POP) Checking population and GDP (PPP) datasets after coarsening ...")
+        log.info("Checking population and GDP (PPP) datasets after coarsening ...")
         total_pop_2020 = ds_population_adjusted[varname_population].sel(time=2020).sum().compute().item()
         total_gdp_2020 = ds_gdp_adjusted[varname_gdp_ppp].sel(time=2020).sum().compute().item()
-        log.info(f"(process_factors_GDP_POP) Total population: {total_pop_2020:,.0f}")
-        log.info(f"(process_factors_GDP_POP) Total GDP (PPP): {total_gdp_2020:,.0f}")
+        log.info(f"Total population: {total_pop_2020:,.0f}")
+        log.info(f"Total GDP (PPP): {total_gdp_2020:,.0f}")
         mask_pop_nan_2020 = mask_pop_nan.sel(time=2020)
         # check 1: calculate number of cells where population is nan and gdp is not nan
         num_cells_pop_nan_gdp_not_nan_2020 = mask_pop_nan_2020.sum().compute().item()
@@ -311,8 +308,8 @@ def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
     total_pop_aligned_2020 = ds_population_adjusted[varname_population].sel(time=2020).sum().compute().item()
     log.info("--------------------------------")
     if check_pop:
-        log.info(f"(process_factors_GDP_POP) Check: Total population + number of cells with population NaN/zero and GDP not NaN: {check_pop:,.0f}")
-    log.info(f"(process_factors_GDP_POP) Total population + number of cells with population NaN/zero and GDP not NaN: {total_pop_aligned_2020:,.0f}")
+        log.info(f"Check: Total population + number of cells with population NaN/zero and GDP not NaN: {check_pop:,.0f}")
+    log.info(f"Total population + number of cells with population NaN/zero and GDP not NaN: {total_pop_aligned_2020:,.0f}")
 
     ds_population_processed = ds_population_adjusted
     ds_gdp_ppp_processed = ds_gdp_adjusted

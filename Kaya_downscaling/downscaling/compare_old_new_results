@@ -1,0 +1,33 @@
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+old_dir = Path("K:/PythonWork/downscaling/Kaya_downscaling/data/_output")
+new_dir = Path("K:/PythonWork/downscaling/Kaya_downscaling/data/output")
+
+f1 = "Emissions_region_combined_"
+f2 = "Emissions_urban_region_"
+
+# with pathlib, compare files in old and new directories for .csv files starting with f1 and f2, and print the differences
+for file in old_dir.glob(f"{f1}*.csv"):
+    if file.exists():
+        old_df = pd.read_csv(file, sep=";")
+        new_file = new_dir / file.name
+        if new_file.exists():
+            new_df = pd.read_csv(new_file, sep=";")
+            if not old_df.equals(new_df):
+                print(f"File {file.name} has differences between old and new versions.")
+        else:
+            print(f"File {file.name} exists in old but not in new directory.")
+
+for file in old_dir.glob(f"{f2}*.csv"):
+    if file.exists():
+        old_df = pd.read_csv(file, sep=";")
+        new_file = new_dir / file.name
+        if new_file.exists():
+            new_df = pd.read_csv(new_file, sep=";")
+            if not old_df.equals(new_df):
+                print(f"File {file.name} has differences between old and new versions.")
+        else:
+            print(f"File {file.name} exists in old but not in new directory.")

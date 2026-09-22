@@ -289,6 +289,58 @@ def _fill_nearest_neighbour(da: xr.DataArray, max_fill_pixels: int = 1, land_mas
 
     return da.copy(data=result.astype(da.dtype))
 
+def gadm_levels_to_csv(gpkg_file_path: Path, output_dir: Path) -> Path:
+    """
+    Read all six GADM 4.1 admin levels from a local GeoPackage and write
+    the attribute data (excluding geometry) to a single CSV file.
+
+    Each row in the output CSV has a 'level' column indicating which admin
+    level it came from (0-5). Columns not present in a given level are
+    filled with NaN.
+
+    Parameters:
+    GADM_gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
+    output_dir : Path - Directory where the output CSV will be saved.
+
+    Returns:
+    Path - Path to the saved CSV file.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    all_levels = []
+
+    level_names = {0: "Country" , 1: "State_Province", 2: "County_District", 3: "Commune_Municipality", 4: "Sub-municipal_1", 5: "Sub-municipal_2"}
+
+    if not gpkg_file_path.exists():
+        raise FileNotFoundError(f"GADM GeoPackage file not found: {gpkg_file_path}")
+    for level in range(6):
+        layer = f"ADM_{level}"
+        print(f"Reading {layer}...")
+        try:
+            gdf = gpd.read_file(gpkg_file_path, layer=layer)
+        except Exception as e:
+            print(f"Could not read layer {layer}: {e}")
+            continue
+
+        df = gdf.drop(columns="geometry")
+        df["level"] = level
+        all_levels.append(df)
+        print(f"  {layer}: {len(df)} features, columns: {list(df.columns)}")
+
+        # Write level to CSV immediately and discard to reduce memory pressure
+        level_csv = output_dir / f"ADM_{level}_{level_names[level]}.csv"
+        df.to_csv(level_csv, sep=";", index=False)
+        print(f"  Written to: {level_csv}")
+
+    print("Concatenating all levels...")
+    combined = pd.concat(all_levels, ignore_index=True)
+    del all_levels
+
+    out_path = output_dir / "gadm_all_levels.csv"
+    combined.to_csv(out_path, sep=";", index=False)
+    print(f"Combined CSV saved to: {out_path} ({out_path.stat().st_size / (1024**2):.1f} MB)")
+
+    return out_path
+
 def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, plot=False):
     """
     Create a GADM-based country/region raster for a target IAM model (default: IMAGE),
@@ -370,22 +422,31 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     with open(settings_file_data_locations, "r") as f:
         data_files_data_locations = json.load(f)
     data_files_data_locations = apply_root_json(data_files_data_locations, data_files_data_locations["data_root"])
-    data_dir_GADM = data_files_data_locations["GADM"]["dir_GADM_single"]
-    data_dir_GADM = Path(data_dir_GADM)
+    data_dir_GADM = Path(data_files_data_locations["GADM"]["dir_GADM_single"])
 
     print("Creating GADM raster file for regions...")
 
-    id_to_iso = pd.DataFrame()
     # 1. check if file with GADM raster countries exists
+    file_iso_to_id = Path(f"{dir_GADM}/iso_to_id_mapping.csv")
+    file_id_to_iso = Path(f"{dir_GADM}/id_to_iso_mapping.csv")
     res_min_file_end = f"{resolution_minutes:.2f}".replace(".", "_")
     iso_GADM_raster_file = f"{dir_GADM}/iso_codes_raster_{res_min_file_end}.tif"
     print(f"Checking if GADM raster file exists at: {iso_GADM_raster_file}")
     if not Path(iso_GADM_raster_file).exists():
         print(f"Reading in GADM raster with resolution {resolution_minutes} arc minutes file for countries: {iso_GADM_raster_file}")
         raster_file, df_iso_to_id, df_id_to_iso = GADM_vector_to_raster(data_dir_GADM, dir_GADM, resolution_degrees = resolution_minutes/60)
+        df_iso_to_id.to_csv(file_iso_to_id, sep=";", index=False)
+        df_id_to_iso.to_csv(file_id_to_iso, sep=";", index=False)
     else:
         print(f"GADM raster with resolution {resolution_minutes} arc minutes file already exists at: {iso_GADM_raster_file}, skipping creation.")
-        df_iso_to_id = pd.read_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";")
+        if not file_iso_to_id.exists() or not file_id_to_iso.exists():
+            raster_file, df_iso_to_id, df_id_to_iso = read_GADM_vector(data_dir_GADM, dir_GADM)
+            df_iso_to_id.to_csv(file_iso_to_id, sep=";", index=False)
+            df_id_to_iso.to_csv(file_id_to_iso, sep=";", index=False)
+        else:
+            print(f"Reading existing ISO↔ID mapping files from: {file_iso_to_id} and {file_id_to_iso}")
+            df_iso_to_id = pd.read_csv(f"{dir_GADM}/id_to_iso_mapping.csv", sep=";")
+            df_id_to_iso = pd.read_csv(f"{dir_GADM}/iso_to_id_mapping.csv", sep=";")
 
     # 2. convert to rioxarray and rasterio dataset and add model region numbers
     # Open GADM raster file

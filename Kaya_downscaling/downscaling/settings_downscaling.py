@@ -2,6 +2,14 @@
 # Source profiles
 # ---------------------------------------------------------------------------
 SOURCE_PROFILES = {
+    "sensitivity_Zhuang": {
+        "source_POP": "Zhuang",
+        "version_POP": "version_1",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
     "sensitivity_5": {
         "source_POP": "2UP",
         "version_POP": "GHSL_2024_M3",
@@ -88,7 +96,7 @@ process_flags = {
     "read_process_IAM": False,
     "read_process_grid_POP": False,
     "read_process_grid_GDP_PPP": False,
-    "read_process_grid_EM": False,
+    "read_process_grid_EM": True,
     "process_IAM_GDP_per_POP": False,
     "process_grid_GDP_POP": False,
     "process_grid_GDP_per_POP": False,

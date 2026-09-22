@@ -149,57 +149,7 @@ def _area_m2(geometry, crs_from="EPSG:4326"):
     projected = shapely_transform(transformer.transform, geometry)
     return projected.area
 
-def gadm_levels_to_csv(gpkg_file_path: Path, output_dir: Path) -> Path:
-    """
-    Read all six GADM 4.1 admin levels from a local GeoPackage and write
-    the attribute data (excluding geometry) to a single CSV file.
-
-    Each row in the output CSV has a 'level' column indicating which admin
-    level it came from (0-5). Columns not present in a given level are
-    filled with NaN.
-
-    Parameters:
-    GADM_gpkg_path : Path - Path to the local gadm_410-levels.gpkg file.
-    output_dir : Path - Directory where the output CSV will be saved.
-
-    Returns:
-    Path - Path to the saved CSV file.
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    all_levels = []
-
-    level_names = {0: "Country" , 1: "State_Province", 2: "County_District", 3: "Commune_Municipality", 4: "Sub-municipal_1", 5: "Sub-municipal_2"}
-
-    for level in range(6):
-        layer = f"ADM_{level}"
-        print(f"Reading {layer}...")
-        try:
-            gdf = gpd.read_file(gpkg_file_path, layer=layer)
-        except Exception as e:
-            print(f"Could not read layer {layer}: {e}")
-            continue
-
-        df = gdf.drop(columns="geometry")
-        df["level"] = level
-        all_levels.append(df)
-        print(f"  {layer}: {len(df)} features, columns: {list(df.columns)}")
-
-        # Write level to CSV immediately and discard to reduce memory pressure
-        level_csv = output_dir / f"ADM_{level}_{level_names[level]}.csv"
-        df.to_csv(level_csv, sep=";", index=False)
-        print(f"  Written to: {level_csv}")
-
-    print("Concatenating all levels...")
-    combined = pd.concat(all_levels, ignore_index=True)
-    del all_levels
-
-    out_path = output_dir / "gadm_all_levels.csv"
-    combined.to_csv(out_path, sep=";", index=False)
-    print(f"Combined CSV saved to: {out_path} ({out_path.stat().st_size / (1024**2):.1f} MB)")
-
-    return out_path
-
-def get_city_polygon(GADM_gpkg_path: Path, iso3: str, city_name: str, output_dir: Path, search_levels: list = None, output_format: str = "gpkg") -> gpd.GeoDataFrame:
+def get_city_polygon(GADM_gpkg_path: Path, iso3: str, city_name: str, output_dir: Path, save_poly:bool=False, search_levels: list = None, output_format: str = "gpkg") -> gpd.GeoDataFrame:
     """
     Find and save the polygon of a city/town from a local GADM 4.1 levels GeoPackage.
 
@@ -259,22 +209,22 @@ def get_city_polygon(GADM_gpkg_path: Path, iso3: str, city_name: str, output_dir
 
     gdf_result = gpd.GeoDataFrame(pd.concat(results, ignore_index=True))
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = city_name.replace(" ", "_")
-    if output_format == "gpkg":
-        out_path = output_dir / f"{iso3}_{safe_name}.gpkg"
-        gdf_result.to_file(out_path, driver="GPKG")
-    elif output_format == "shp":
-        out_path = output_dir / f"{iso3}_{safe_name}.shp"
-        gdf_result.to_file(out_path)
-    else:
-        raise ValueError(f"Unsupported output format: {output_format}")
-
-    print(f"Saved city polygon to: {out_path}")
+    if save_poly:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = city_name.replace(" ", "_")
+        if output_format == "gpkg":
+            out_path = output_dir / f"{iso3}_{safe_name}.gpkg"
+            gdf_result.to_file(out_path, driver="GPKG")
+        elif output_format == "shp":
+            out_path = output_dir / f"{iso3}_{safe_name}.shp"
+            gdf_result.to_file(out_path)
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
+        print(f"Saved city polygon to: {out_path}")
 
     return gdf_result.geometry.union_all()
 
-def get_us_city_polygon(tiger_dir: Path, city_name: str, output_dir: Path, output_format: str = "gpkg") -> gpd.GeoDataFrame:
+def get_us_city_polygon(tiger_dir: Path, city_name: str, output_dir: Path, output_format: str = "gpkg", save_poly:bool=False) -> gpd.GeoDataFrame:
     """
     Find and save the polygon of a US city/town from TIGER/Line place shapefiles.
 
@@ -329,18 +279,18 @@ def get_us_city_polygon(tiger_dir: Path, city_name: str, output_dir: Path, outpu
 
     gdf_result = gpd.GeoDataFrame(pd.concat(results, ignore_index=True))
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = city_name.replace(" ", "_")
-    if output_format == "gpkg":
-        out_path = output_dir / f"USA_{safe_name}.gpkg"
-        gdf_result.to_file(out_path, driver="GPKG")
-    elif output_format == "shp":
-        out_path = output_dir / f"USA_{safe_name}.shp"
-        gdf_result.to_file(out_path)
-    else:
-        raise ValueError(f"Unsupported output format: {output_format}")
-
-    print(f"Saved city polygon to: {out_path}")
+    if save_poly:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = city_name.replace(" ", "_")
+        if output_format == "gpkg":
+            out_path = output_dir / f"USA_{safe_name}.gpkg"
+            gdf_result.to_file(out_path, driver="GPKG")
+        elif output_format == "shp":
+            out_path = output_dir / f"USA_{safe_name}.shp"
+            gdf_result.to_file(out_path)
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
+        print(f"Saved city polygon to: {out_path}")
 
     return gdf_result.geometry.union_all()
 
@@ -474,8 +424,8 @@ def calculate_emissions_in_polygon(da: xr.DataArray, polygon: gpd.GeoDataFrame, 
         total_intersection_area_m2 = float(np.sum(weights_mean_arr))
 
         if n_full == 0:
-            print(f"Warning: No fully covered pixels found for '{city_name}'. "
-                  f"The city likely does not cover any complete raster pixels at this resolution "
+            print(f"\nWarning: No fully covered pixels found for '{city_name}'. "
+                  f"\nThe city likely does not cover any complete raster pixels at this resolution "
                   f"({res_x:.4f} x {res_y:.4f} degrees). Use 'sum_weighted' instead of 'sum_full'.")
 
         result = {"city": city_name,

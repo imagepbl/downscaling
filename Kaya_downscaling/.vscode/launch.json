@@ -14,7 +14,7 @@
             "subProcess": true,
             "stopOnEntry": false,
             "redirectOutput": true,
-            //"args": ["--create_GADM_raster", "--resolution", "6.00"],
+            //"args": ["--create_GADM_raster", "--model", "IMAGE_ScenarioMIP", "--resolution", "6.00"],
             //"args": ["--download_regions"],
             //"args": ["--download_emissions", "--model", "IMAGE_ScenarioMIP"],
             //"args": ["--process_grid_data", "--profile", "second_round", "--ssp_baseline", "SSP2"],
@@ -24,10 +24,10 @@
             //"args": ["--downscale_population", "--scenario", "IMAGE 3.4_Low - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "second_round", "--ssp_baseline", "SSP2"],
             //"args": ["--downscale_gdp_ppp", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
 
-            //"args": ["--downscale_emissions", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "sensitivity_4", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
-            //"args": ["--plot", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round",  "--emissions", "net", "--global_min", "-0.007856", "--global_max", "0.120754"],
-            "args": ["--plot", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "base_run", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
+            "args": ["--downscale_emissions", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "sensitivity_4", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
+            //"args": ["--plot", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "base_run", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
 
+            //"args": ["--plot", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round",  "--emissions", "net", "--global_min", "-0.007856", "--global_max", "0.120754"],
             //"args": ["--upload", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
             //"args": ["--compare"],
             "env": {

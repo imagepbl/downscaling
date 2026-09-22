@@ -245,11 +245,11 @@ def plot_urban_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str
     xr_check = ds_check[varname]
     year = ds_check["time"].values
     urban = ds_check["urban"]
-    print(f"{PRINT_COLORS['yellow']}Check: unique {year} urban values: {np.unique(urban.values)}{PRINT_COLORS['end']}")
+    log.info(f"{PRINT_COLORS['yellow']}Check: unique {year} urban values: {np.unique(urban.values)}{PRINT_COLORS['end']}")
     check_urban_null = float(xr_check.where(urban.isnull()).sum())
     check_total_urban = float(xr_check.where(urban==1).sum())
     check_perc_urban_null = check_urban_null / (check_urban_null + check_total_urban) * 100
-    print(f"{PRINT_COLORS['yellow']}Check: {year} urban emissions unharmonised: urban_null={check_urban_null:,.0f}, total_urban={check_total_urban:,.0f}, percentage_null={check_perc_urban_null:.2f}%{PRINT_COLORS['end']}")
+    log.info(f"{PRINT_COLORS['yellow']}Check: {year} urban emissions unharmonised: urban_null={check_urban_null:,.0f}, total_urban={check_total_urban:,.0f}, percentage_null={check_perc_urban_null:.2f}%{PRINT_COLORS['end']}")
 
     ds_year = xr_urban.isel(time=0)
     em_na = ds_year[varname].where(ds_year["urban"].isnull())
@@ -349,9 +349,6 @@ def aggregate_urban_values(project_dir: Path,
     t_merge = time.time()
     print(f"Time elapsed for merging emissions and urban data: {(t_merge - t_concat)/60:,.2f} minutes")
 
-    check = xr_combined[varname].sel(time=base_year).where(xr_combined["region_number"]==1).sum().compute().values
-    print(f"{PRINT_COLORS["yellow"]}Check xr_combined om aggregate_urban_values for region 1 in 2020: {check:,.2f}{PRINT_COLORS["end"]}")
-
     print(f"Aggregating values per {region_varname} for {len(common_years)} years...")
     log.info(f"Unique urban values (first year): {np.unique(xr_combined["urban"].isel(time=0).values)}")
     log.info(f"Unique region values (first year): {np.unique(xr_combined[region_varname].values)}")
@@ -379,9 +376,10 @@ def aggregate_urban_values(project_dir: Path,
 
     return xr_combined
 
-def calculate_urban_rural_totals(xr_dataset: xr.Dataset, varname: str, region_varname: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def calculate_urban_rural_totals(xr_dataset: xr.Dataset, varname: str, region_varname: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # pre: xr_dataset must have a "urban" variable (1 = urban, 0 = rural) and a region variable (e.g., "region_number")
 
+    print(f"{np.unique(xr_dataset["urban"].values)} unique urban values in dataset")
     urban_totals = (xr_dataset[varname]
                     .where(xr_dataset["urban"]==1)
                     .groupby(xr_dataset[region_varname].compute())
@@ -398,4 +396,12 @@ def calculate_urban_rural_totals(xr_dataset: xr.Dataset, varname: str, region_va
     df_rural_values = (rural_totals.to_dataframe(name=varname).reset_index()
                        .rename(columns={"time": "year"}))
 
-    return df_urban_values, df_rural_values
+    ocean_totals = (xr_dataset[varname]
+                    .where(xr_dataset["urban"].isnull())
+                    .groupby(xr_dataset[region_varname].compute())
+                    .sum()
+                    .compute())
+    df_ocean_values = (ocean_totals.to_dataframe(name=varname).reset_index()
+                       .rename(columns={"time": "year"}))
+
+    return df_urban_values, df_rural_values, df_ocean_values
