@@ -45,6 +45,7 @@ from tools.functions_logging import init_logging
 from tools.general_functions import PRINT_COLORS, apply_root_json
 from .settings_downscaling_cities import NL_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam
 from downscaling.settings_resolution import DATASETS
+from downscaling.settings_downscaling import CONVERSION_FACTORS
 
 gdal.UseExceptions()
 
@@ -104,11 +105,6 @@ def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: Dataset
     # Chunk the arrays for memory-efficient processing
     raster1 = raster1.chunk({"x": chunk_size, "y": chunk_size})
     raster2 = raster2.chunk({"x": chunk_size, "y": chunk_size})
-
-    # Check if arrays are close (memory-efficient for chunked data)
-    # are_close = (xr.apply_ufunc(np.isclose, raster1, raster2, kwargs={"rtol": rtol, "atol": atol, "equal_nan": True}, dask="allowed")
-    #             .all()
-    #             .compute())
 
     close_map = xr.apply_ufunc(np.isclose, raster1, raster2, kwargs={"rtol": rtol, "atol": atol, "equal_nan": True}, dask="allowed")
     are_close = close_map.all().compute()
@@ -1461,6 +1457,16 @@ def get_parameters_SE(process_data:bool=False, varname="Population", source:str=
 
     return data_dir, rxr_filename, glob_pattern, search_pattern, test_filename
 
+def _replace_with_retry(src_path: Path, dst_path: Path, retries: int = 10, wait: float = 2.0) -> None:
+    for attempt in range(retries):
+        try:
+            src_path.replace(dst_path)
+            return
+        except PermissionError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(wait)
+
 def _clamp_low_values(tiff_dir: Path, min_valid: float, fill: float = 0.0, band: int = 1,
                      log: logging.Logger = local_log) -> None:
     """Set tiny positive COMPASS artefact pixels (~1e-15) to `fill`, in place, leaving nodata untouched.
@@ -1478,8 +1484,16 @@ def _clamp_low_values(tiff_dir: Path, min_valid: float, fill: float = 0.0, band:
         if n_art:
             log.info(f"{tiff_path.name}: clamping {n_art:,} pixels in (0, {min_valid:g}) to {fill:g}")
             data[artefacts] = fill
-            with rasterio.open(tiff_path, "w", **profile) as dst:
-                dst.write(data, band)
+            # with rasterio.open(tiff_path, "w", **profile) as dst:
+            #     dst.write(data, band)
+            tmp_path = tiff_path.with_name(tiff_path.name + ".tmp")
+            try:
+                with rasterio.open(tmp_path, "w", **profile) as dst:
+                    dst.write(data, band)
+                _replace_with_retry(tmp_path, tiff_path)
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
 def _log_low_value_distribution(tiff_path: Path, band: int = 1, log: logging.Logger = local_log) -> None:
     """Read-only: log the low-end distribution of positive values, to size the clamp floor."""
@@ -1802,7 +1816,6 @@ def update_GIS_parameters(varname: str, source: str, version: str, SSP_base:str,
                     for src in file_path_src.glob("*.tif"):
                         if "ssp" not in src.name.lower():
                             shutil.copy2(src, file_path_dest / src.name)
-                    log.info(f"Error: No update parameters are given for updating source {source}, exiting")
 
                     # rename the historic file to match the future-file format (GDP_<year>_6min_SSP2_not_harm.tif)
                     for src in list(file_path_dest.glob("*.tif")):   # list() closes the directory scan before renaming
@@ -2287,6 +2300,11 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
         log.info(f"\n\n------------check_values_rio_xarray after coarsening--------------------------------------------------------------------")
         count_values_rio_xarray(rxr_SE_coarsened, varname, year=year_check, log=log)
         calc_total_sum_rio_xarray(rxr_SE_coarsened[varname], year=year_check, log=log)
+
+    # change to $2005 dollars
+    if "GDP" in varname:
+        conv_factor = CONVERSION_FACTORS[(2017, 2005)]
+        rxr_SE_coarsened[varname] *= conv_factor
 
     return rxr_SE_coarsened, rxr_filepath
 

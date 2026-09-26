@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import requests
 import pandas as pd
 
 # for R script execution
@@ -157,5 +157,28 @@ def use_gdpuc(data:pd.DataFrame, R_SCRIPT_PATH:str,
         for path in [input_path, output_path]:
             if path.exists():
                 path.unlink()
+
+
+##################### WORLD BANK GDP DATA #####################
+
+
+
+WB_URL = "https://api.worldbank.org/v2/country/USA/indicator/NY.GDP.DEFL.ZS"
+
+def get_wb_deflator(start_year, end_year):
+    response = requests.get(WB_URL, params={"format": "json", "date": f"{start_year}:{end_year}", "per_page": 100},
+                            timeout=30)
+    response.raise_for_status()
+    records = response.json()[1]
+    return {int(r["date"]): r["value"] for r in records if r["value"] is not None}
+
+
+def rebase_factor(deflator, base_from, base_to):
+    return deflator[base_to] / deflator[base_from]
+
+if __name__ == "__main__":
+    deflator = get_wb_deflator(2005, 2017)
+    print(f"2005 -> 2010: {rebase_factor(deflator, 2005, 2010):.4f}")
+    print(f"2017 -> 2010: {rebase_factor(deflator, 2017, 2010):.4f}")
 
 

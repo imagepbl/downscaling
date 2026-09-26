@@ -314,8 +314,8 @@ def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
     ds_population_processed = ds_population_adjusted
     ds_gdp_ppp_processed = ds_gdp_adjusted
 
-    ds_population_processed.attrs["unit"] = unit_population
-    ds_gdp_ppp_processed.attrs["unit"] = unit_gdp_ppp
+    ds_population_processed[varname_population].attrs["unit"] = unit_population
+    ds_gdp_ppp_processed[varname_gdp_ppp].attrs["unit"] = unit_gdp_ppp
 
     return ds_population_processed, ds_gdp_ppp_processed
 
@@ -323,8 +323,33 @@ def _transforms_are_close(t1: Affine, t2: Affine, rtol: float = 1e-5) -> bool:
     """Compare two Affine transforms element-wise with a tolerance."""
     return np.allclose(t1[:6], t2[:6], rtol=rtol)
 
-def calculate_gdp_per_pop(ds_population, ds_gdp,
-                          varname_POP, varname_GDP, varname_gpd_per_pop:str,
+def calculate_gdp_per_pop_global(xr_population: xr.Dataset, varname_POP: str,
+                                 xr_gdp_pc: xr.Dataset, varname_GDPpc: str) -> pd.DataFrame:
+
+
+    # check
+    pop = xr_population[varname_POP].assign_coords(x=xr_gdp_pc["x"], y=xr_gdp_pc["y"])
+    valid = xr_gdp_pc[varname_GDPpc].notnull()
+    den = pop.where(valid).sum(dim=["y", "x"]).compute()
+    print(f"{PRINT_COLORS["cyan"]}Look for any 0 entries and their time value: {den}{PRINT_COLORS['end']}")   # look for any 0 entries and their time value
+
+    # Snap population onto the GDP/POP grid so the multiply pairs matching cells.
+    # No-op if coords already match; fixes float-rounding misalignment if they don't.
+    pop = xr_population[varname_POP].assign_coords(x=xr_gdp_pc["x"], y=xr_gdp_pc["y"])
+    gdp_pc = xr_gdp_pc[varname_GDPpc]
+
+    # Weight numerator and denominator over the SAME cells: only where gdp_pc is defined.
+    valid = gdp_pc.notnull()
+    num = (gdp_pc * pop).sum(dim=["y", "x"])
+    den = pop.where(valid).sum(dim=["y", "x"])
+
+    gdp_pc_global = num / den.where(den != 0)
+    gdp_pc_global_df = gdp_pc_global.to_dataframe(name="GDP_pc_global").reset_index()
+
+    return gdp_pc_global_df
+
+def calculate_gdp_per_pop(ds_population:xr.Dataset, ds_gdp:xr.Dataset,
+                          varname_POP:str, varname_GDP:str, varname_gpd_per_pop:str,
                           unit_pop:str, unit_gdp_ppp:str,
                           log:logging.Logger=local_log) -> xr.Dataset:
     '''
@@ -614,21 +639,22 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
                                               xr_regional_sums:xr.Dataset,
                                               xr_IAM_regions_grid_downscaling:xr.Dataset,
                                               df_IAM_EM:pd.DataFrame,
-                                              years_downscaling:list) -> xr.DataArray:
+                                              years_downscaling:list,
+                                              log: logging.Logger=local_log) -> xr.DataArray:
     # Calculate correction factors and redistribute se_indicator (for emissions, only base year)
     nr_regions = df_IAM_EM["region_number"].nunique()
 
-    print("Calculate correction factors and redistribute se_indicator...")
+    log.info("Calculate correction factors and redistribute se_indicator...")
     # Prepare harmonised (target) se_indicator values from IAM projections
     xr_harmonised = (df_IAM_EM
                     .set_index(['year', 'region_number'])['value']
                     .to_xarray()
                     .sel(year=years_downscaling, region_number=xr_regional_sums.region_number))
 
-    print(f"Unique region numbers in harmonised se_indicator data: {np.unique(xr_harmonised.region_number.values)}")
+    log.info(f"Unique region numbers in harmonised se_indicator data: {np.unique(xr_harmonised.region_number.values)}")
     xr_harmonised = xr_harmonised.rename({'year': 'time'})
 
-    print(f"Years in harmonised se_indicator data: {xr_harmonised.time.values}")
+    log.info(f"Years in harmonised se_indicator data: {xr_harmonised.time.values}")
     # Calculate regional correction factors
     #xr_correction_factors_regional = (xr_harmonised / xr_regional_sums[varname_EM]).fillna(0)
     regional_sums_not_harmonised = xr_regional_sums[varname_EM]
@@ -642,17 +668,17 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
 
     # Map to spatial grid using numpy
     region_ids = xr_IAM_regions_grid_downscaling.region_number.values
-    print(f"Unique region numbers in IAM regions grid: {np.unique(region_ids)}")
+    log.info(f"Unique region numbers in IAM regions grid: {np.unique(region_ids)}")
 
     # Process x time steps at a time instead of all or one
-    print("Processing correction factors in blocks...")
+    log.info("Processing correction factors in blocks...")
     block_size = 4
     correction_factors_chunks = []
 
     for i in range(0, len(xr_correction_factors_regional.time), block_size):
         # Calculate actual block size (last block might be smaller)
         actual_block_size = min(block_size, len(xr_correction_factors_regional.time) - i)
-        print(f"Processing block {i // block_size + 1} of {(len(xr_correction_factors_regional.time) + block_size - 1) // block_size}...")
+        log.info(f"Processing block {i // block_size + 1} of {(len(xr_correction_factors_regional.time) + block_size - 1) // block_size}...")
 
         time_slice = slice(i, i + actual_block_size)
 
@@ -664,11 +690,11 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
         correction_factors_chunks.append(lookup[:, region_ids])
 
     # Concatenate all chunks AFTER the loop
-    print("Concatenating correction factor chunks...")
+    log.info("Concatenating correction factor chunks...")
     correction_factors_array = np.concatenate(correction_factors_chunks, axis=0)
 
     # Create the final DataArray with the full concatenated array
-    print("Creating final DataArray for correction factors...")
+    log.info("Creating final DataArray for correction factors...")
     xr_em_correction_factors = xr.DataArray(
         correction_factors_array,
         coords={'time': xr_correction_factors_regional.time,
@@ -682,7 +708,8 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
 def apply_harmonisation_factors_emissions(xr_correction_factors:xr.DataArray,
                                           xr_em:xr.Dataset, varname:str,
                                           xr_IAM_regions_grid_downscaling:xr.Dataset,
-                                          model: str, scenario: str) -> xr.Dataset:
+                                          model: str, scenario: str,
+                                          log: logging.Logger=local_log) -> xr.Dataset:
 
     # Apply correction factor
     nr_regions = len(np.unique(xr_IAM_regions_grid_downscaling["region_number"].values)) - 1  # Exclude ocean (0)
@@ -719,8 +746,8 @@ def apply_harmonisation_factors_emissions(xr_correction_factors:xr.DataArray,
     # for 2020, compare the sum of corrected se_indicator with IAM regional value
     sum_corrected_2020 = xr_grid_correction[varname].sel(time=2020).sum().compute().item()
     sum_corrected_by_region_2020 = xr_grid_correction[varname].sel(time=2020).groupby(xr_grid_correction.region_number).sum().compute()
-    print(f"{PRINT_COLORS["yellow"]}Global sum of corrected {varname} for 2020: {sum_corrected_2020:,.2f}{PRINT_COLORS["end"]}")
-    print(f"{PRINT_COLORS["yellow"]}Sum of corrected {varname} by region for 2020: {sum_corrected_by_region_2020}{PRINT_COLORS["end"]}")
+    log.info(f"{PRINT_COLORS["yellow"]}Global sum of corrected {varname} for 2020: {sum_corrected_2020:,.2f}{PRINT_COLORS["end"]}")
+    log.info(f"{PRINT_COLORS["yellow"]}Sum of corrected {varname} by region for 2020: {sum_corrected_by_region_2020}{PRINT_COLORS["end"]}")
 
     return xr_grid_correction
 

@@ -39,7 +39,7 @@ class CallerFilter(logging.Filter):
 
 
 def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
-                 results_to_console=False):
+                 results_to_console=False, show_location=False):
     """
     Set up a three-file logging system: debug, results, and errors.
 
@@ -48,7 +48,7 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
           from the debug logger, also mirrored to the console
         - log_results_<prefix>_<timestamp>.log: messages (INFO and above)
           from the results logger
-        - log_errors_warning_<prefix>_<timestamp>.log: WARNING and above from
+        - log_errors_warning_error_<prefix>_<timestamp>.log: WARNING and above from
           both loggers, plus warnings.warn() calls (e.g. from rasterio, xarray,
           rioxarray, dask) captured via logging.captureWarnings(True)
 
@@ -67,6 +67,9 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
         log_dir: Directory to store logs (created if it doesn't exist)
         console_level: Logging level for console output
         results_to_console: If True, results logger also prints to console
+        show_location: If True, debug, console, and error lines include the emit
+        location (module:function:line) and the caller; if False, these
+        lines show only time, logger name, level, and message
 
     Returns:
         tuple: (debug_logger, results_logger)
@@ -104,11 +107,18 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     console_handler.setLevel(console_level)
 
     # Create formatters with custom date format (no milliseconds)
-    debug_formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(module)s:%(funcName)s:%(lineno)d "
-        "(from %(caller)s) - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    # debug_formatter = logging.Formatter(
+    #     "%(asctime)s - %(name)s - %(module)s:%(funcName)s:%(lineno)d "
+    #     "(from %(caller)s) - %(levelname)s - %(message)s",
+    #     datefmt="%Y-%m-%d %H:%M:%S"
+    # )
+    # results_formatter = logging.Formatter("%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # Optional location part: "module:function:line (from caller) - "
+    location_fmt = "%(module)s:%(funcName)s:%(lineno)d (from %(caller)s) - " if show_location else ""
+    detail_fmt = f"%(asctime)s - %(name)s - {location_fmt}%(levelname)s - %(message)s"
+
+    debug_formatter = logging.Formatter(detail_fmt, datefmt="%Y-%m-%d %H:%M:%S")
     results_formatter = logging.Formatter("%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
     # Add formatters to handlers
@@ -120,18 +130,27 @@ def init_logging(log_prefix="app", log_dir="log", console_level=logging.INFO,
     error_file = log_path / f"log_errors_warning_error_{log_prefix}_{timestamp}.log"
     error_handler = logging.FileHandler(error_file)
     error_handler.setLevel(logging.WARNING)
-    error_formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(module)s:%(funcName)s:%(lineno)d "
-        "(from %(caller)s) - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    error_handler.setFormatter(error_formatter)
+
+    # error_formatter = logging.Formatter(
+    #     "%(asctime)s - %(name)s - %(module)s:%(funcName)s:%(lineno)d "
+    #     "(from %(caller)s) - %(levelname)s - %(message)s",
+    #     datefmt="%Y-%m-%d %H:%M:%S"
+    # )
+    #error_handler.setFormatter(error_formatter)
+    error_handler.setFormatter(debug_formatter)
+
 
     # Attach the caller filter to every handler whose formatter uses %(caller)s
-    caller_filter = CallerFilter()
-    debug_handler.addFilter(caller_filter)
-    console_handler.addFilter(caller_filter)
-    error_handler.addFilter(caller_filter)
+    # caller_filter = CallerFilter()
+    # debug_handler.addFilter(caller_filter)
+    # console_handler.addFilter(caller_filter)
+    # error_handler.addFilter(caller_filter)
+    if show_location:
+        caller_filter = CallerFilter()
+        debug_handler.addFilter(caller_filter)
+        console_handler.addFilter(caller_filter)
+        error_handler.addFilter(caller_filter)
+
 
     debug_logger.addHandler(error_handler)
     results_logger.addHandler(error_handler)

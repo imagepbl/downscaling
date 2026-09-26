@@ -206,7 +206,7 @@ if __name__ == "__main__":
             net_emissions = True
         else:
             net_emissions = False
-        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, int(arguments.convergence_year), net_emissions)
+        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, int(arguments.convergence_year), net_emissions, True)
 
     # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:

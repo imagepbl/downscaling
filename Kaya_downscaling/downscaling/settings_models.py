@@ -1,5 +1,5 @@
 models = {
-    "IMAGE": {"factor_GDP_PPP": 1.10774,
+    "IMAGE": {"factor_GDP_PPP": 1.10774, # WB value is 1.0990
               "factor_year_from": 2010,
               "factor_year_to": 2005,
               "model_unit_conversions": {"Emissions|CO2": 1e6,

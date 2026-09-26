@@ -102,26 +102,6 @@ def get_IAM_region_info(model="IMAGE"):
 
     return xr_IAM_regions_processed, region_mapping
 
-def read_IAM_regions_data(project_dir: Path, model:str, scenario:str, regions_mapping:dict, region_World:str="World") -> pd.DataFrame:
-    # Scenario name should be the name of the IAMC template Excel file
-
-    # Read IAM data
-    excel_path = project_dir / f"data/input/models/{model}/scenarios/{scenario}.xlsx"
-    df_IAM = pd.read_excel(excel_path, sheet_name="data")
-    df_IAM = df_IAM[df_IAM["Region"]!="World"]
-    df_IAM = df_IAM.melt(id_vars=["Model", "Scenario", "Region", "Variable", "Unit"], var_name="Year", value_name="Value")
-    df_IAM["Year"] = df_IAM["Year"].astype(int)
-
-    # Process GDP
-    df_IAM = process_GDP(model, df_IAM, "GDP|PPP")
-
-    # Add region numbers
-    df_IAM["Region_number"] = df_IAM["Region"].map({v: k for k, v in regions_mapping.items()})
-    df_IAM["Region_number"] = df_IAM["Region_number"].astype(int)
-    df_IAM.rename(columns={"Region": "Region_code"}, inplace=True)
-
-    return df_IAM
-
 def get_regions(project_dir:Path, model:str, file_IAM_model_region_numbers:str) -> Tuple[pd.DataFrame, dict]:
     csv_path = project_dir / file_IAM_model_region_numbers
     regions = pd.read_csv(csv_path, sep=";")
@@ -141,7 +121,24 @@ def read_process_IAM_data(project_dir:Path, scenario:str, model:str, file_IAM_mo
     regions, regions_mapping = get_regions(project_dir, model, file_IAM_model_region_numbers)
 
     # Read IAM data
-    df_IAM = read_IAM_regions_data(project_dir, model, scenario, regions_mapping, region_World="World")
+    # df_IAM = read_IAM_regions_data(project_dir, model, scenario, regions_mapping, region_World="World")
+
+    # Read IAM data
+    excel_path = project_dir / f"data/input/models/{model}/scenarios/{scenario}.xlsx"
+    df_IAM = pd.read_excel(excel_path, sheet_name="data")
+    df_IAM = df_IAM[df_IAM["Region"]!="World"]
+    df_IAM = df_IAM.melt(id_vars=["Model", "Scenario", "Region", "Variable", "Unit"], var_name="Year", value_name="Value")
+    df_IAM["Year"] = df_IAM["Year"].astype(int)
+
+    # Process GDP (PPP) to $2010 dollars
+    # Change to conv_factor = CONVERSION_FACTORS[(2010, 2005)] or make 2010 base year
+    df_IAM = process_GDP(model, df_IAM, "GDP|PPP")
+
+    # Add region numbers
+    df_IAM["Region_number"] = df_IAM["Region"].map({v: k for k, v in regions_mapping.items()})
+    df_IAM["Region_number"] = df_IAM["Region_number"].astype(int)
+    df_IAM.rename(columns={"Region": "Region_code"}, inplace=True)
+
     df_IAM = df_IAM[df_IAM["Variable"].isin(vars_downscaling)].reset_index(drop=True)
     df_IAM.columns = [col.lower() for col in df_IAM.columns]
 

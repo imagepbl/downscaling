@@ -91,13 +91,17 @@ SOURCE_PROFILES = {
 # ---------------------------------------------------------------------------
 process_flags = {
     # downscale_emissions
-    "save_tiffs_intermediate": True,
+    "save_tiffs_intermediate": False,
 
     "read_process_IAM": False,
     "read_process_grid_POP": False,
+    "downscale_grid_POP": False,
     "read_process_grid_GDP_PPP": False,
-    "read_process_grid_EM": True,
+    "read_process_grid_GDPpc": False,
+    #"downscale_grid_GDP_PPP": False,
+    "read_process_grid_EM": False,
     "process_IAM_GDP_per_POP": False,
+    "downscale_grid_GDPpc": False,
     "process_grid_GDP_POP": False,
     "process_grid_GDP_per_POP": False,
     "process_IAM_EM_per_GDP": True,
@@ -150,3 +154,7 @@ method_extension  = 2  # 1: growth rate from last two steps, 2: zero growth rate
 
 years_downscaling = [2020, 2025, 2030, 2035, 2040, 2045, 2050, 2060, 2070, 2080, 2090, 2100]
 
+# Conversion factors to 2010 international $, based on World Bank NY.GDP.DEFL.ZS (USA), updated 2026-07-13
+CONVERSION_FACTORS = {(2005, 2010): 1.0990177343,
+                      (2017, 2010): 0.8963189446,
+                      (2017, 2005): 0.8155636771}

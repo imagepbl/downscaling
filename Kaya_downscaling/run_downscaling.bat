@@ -69,8 +69,12 @@ REM **********************************************
 REM NET EMISSIONS
 
 REM Base run
-pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2150 --emissions net
+REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2150 --emissions net
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2150 --emissions net
+
+REM Senstivity 4 (source population: COMPASS)
+REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_4 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
+REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_4 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
 
 REM Senstivity 1 (baseline SSP1)
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP1" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP1 --convergence_year 2150 --emissions net
@@ -84,13 +88,9 @@ REM Senstivity 3 (source emissions: CEDS_CMIP7)
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_3 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_3 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
 
-REM Senstivity 4 (source population: COMPASS)
-pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_4 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_4 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
-
 REM Senstivity 5 (source GDP: COMPASS)
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_5 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_5 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
+pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_5 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
+pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_5 --ssp_baseline SSP2 --convergence_year 2150 --emissions net
 
 REM Senstivity 6 (convergence year: 2120)
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2120 --emissions net
@@ -99,11 +99,6 @@ REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SS
 REM Senstivity 7 (convergence year: 2180)
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2180 --emissions net
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2180 --emissions net
-
-REM Senstivity Zhuang (source population: Zhuang)
-REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_Zhuang --ssp_baseline SSP2 --convergence_year 2150 --emissions net
-pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Low - SSP2" --model IMAGE_ScenarioMIP --profile sensitivity_Zhuang --ssp_baseline SSP2 --convergence_year 2150 --emissions net
-
 
 REM GROSS EMISSIONS
 REM pixi run python main.py --downscale_emissions --scenario "IMAGE 3.4_Medium - SSP2" --model IMAGE_ScenarioMIP --profile base_run --ssp_baseline SSP2 --convergence_year 2150 --emissions gross
