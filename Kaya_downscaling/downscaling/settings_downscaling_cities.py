@@ -11,6 +11,10 @@ Longitudes: 3.4° E → 7.2° E
 # [west, south, east, north]
 # -180, -90, +180, +90
 NL_bbox = {"west": 3.4, "south": 50.8, "east": 7.2, "north": 53.6}
+Amsterdam_bbox = {"west": 3.0, "south": 51.0, "east": 7.0, "north": 54.0}
+Lima_bbox = {"west": -79.03, "south": -14.05, "east": -75.03, "north": -10.05}
+Raleigh_bbox = {"west": -80.64, "south": 33.77, "east": -76.64, "north": 37.77}
+NewYork_bbox = {"west": -76.01, "south": 38.71, "east": -72.01, "north": 42.71}
 
 # Middle of Atlantic Ocean
 lon_MidAtlantic = -50 # lon
@@ -28,6 +32,15 @@ lat_The_Hague = 52.0705
 # Utrecht
 lon_Utrecht = 5.1214
 lat_Utrecht = 52.0907
+# Lima (Peru)
+lon_Lima = -77.0428
+lat_Lima = -12.0464
+# Raleigh (North Carolina, USA)
+lon_Raleigh = -78.6382
+lat_Raleigh = 35.7796
+# New York (New York City, USA)
+lon_New_York = -74.0060
+lat_New_York = 40.7128
 
 coord_Amsterdam = [3.0, 7.0, 51.0, 54.0]
 coord_Lima = [-79.03, -75.03, -14.05, -10.05]

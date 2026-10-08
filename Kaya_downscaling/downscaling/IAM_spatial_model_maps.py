@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 from typing import Tuple
+import logging
 
 import numpy as np
 import pandas as pd
@@ -19,12 +20,18 @@ import geopandas as gpd
 import xarray as xr
 import rioxarray as rxr
 
-from tools.general_functions import apply_root_json
+from scipy.ndimage import binary_erosion
+from scipy.spatial import cKDTree
+
+from tools.general_functions import PRINT_COLORS, apply_root_json
+from tools.functions_logging import init_logging
 
 colour_red = "\033[91m"
 colour_green = "\033[92m"
 colour_yellow = "\033[93m"
 color_end = "\033[0m"
+
+local_log, dummy_log = init_logging("log", "log/reading_processing_data/local")
 
 def read_GADM_vector(input_dir:Path, output_dir:Path) -> [gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame]:
     # Read in
@@ -341,7 +348,7 @@ def gadm_levels_to_csv(gpkg_file_path: Path, output_dir: Path) -> Path:
 
     return out_path
 
-def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, plot=False):
+def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_minutes:float=0.5, label:str="_", plot=False) -> str:
     """
     Create a GADM-based country/region raster for a target IAM model (default: IMAGE),
     and export both NetCDF and GeoTIFF outputs with validation diagnostics.
@@ -520,7 +527,7 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     ds_GADM_raster.to_netcdf(f"{dir_GADM}/{model}_GADM_regions_raster_6_00_arcmin.nc", mode="w", engine="netcdf4")
     print(f"\nSaving GADM raster to {colour_yellow}tiff {color_end}file in {dir_GADM} with region numbers...")
     data = np.stack([ds_GADM_raster["country_id_GADM"].values, ds_GADM_raster["region_number"].values])
-    tiff_file = f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}_arcmin.tif"
+    tiff_file = f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}{label}_arcmin.tif"
     with rasterio.open(
         tiff_file,
         "w",
@@ -545,10 +552,9 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
     print(f"resolution EM grid: {arc_seconds:.1f} arc seconds, {arc_minutes:.1f} arc minutes, {arc_degrees:.1f} arc degrees")
 
     # 3. plot and checks
-    dir_input = Path(f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}_arcmin.tif")
+    dir_input = Path(f"{dir_GADM}/{model}_GADM_regions_raster_{res_min_file_end}{label}_arcmin.tif")
     dir_fig = Path(f"{dir_GADM}/figures")
     dir_fig.mkdir(parents=True, exist_ok=True)
-    #plot_maps.plot_coast_checks(dir_input, dir_fig, f"_{resolution_minutes:.2f}")
     plot_countries_regions(dir_input, dir_fig)
 
     with rasterio.open(tiff_file) as src:
@@ -613,3 +619,209 @@ def create_GADM_region_raster(project_dir:Path, model:str="IMAGE", resolution_mi
         # e.g. pixel at lon=0 should be somewhere in Africa/Europe, not ocean
         print("Value at lon=0 center:", countries[900, 1800])   # row 900 = equator, col 1800 = lon 0 in -180:180
         print("Value at lon=180 center:", countries[900, 3599]) # col 3599 = lon 180
+
+    return tiff_file
+
+
+"""
+Assign ocean pixels of the GADM country/region raster to the nearest country/region,
+but only where a gridded dataset (xarray) actually holds values.
+
+Paste `assign_ocean_pixels_to_nearest_region` into the module that defines `create_GADM_region_raster`
+(or import that function here). Assumes the raster is in a geographic CRS (lon/lat degrees, e.g. EPSG:4326)
+and that the dataset uses the same longitude convention as the raster (-180..180 for the GADM raster).
+"""
+
+def create_GADM_region_raster_profile(project_dir: Path, profile: str, model: str, SSP_base:str, base_year:int=2020):
+
+    import downscaling.settings_downscaling as settings_downscaling
+    from tools.general_functions import PRINT_COLORS, apply_root_json
+    import downscaling.read_process_grid_data as process_grid_data
+
+    local_log.info(f"{PRINT_COLORS["green"]}Creating GADM region raster for profile: {profile}, model: {model}, "
+                   f"SSP_base: {SSP_base}, base_year: {base_year}{PRINT_COLORS["end"]}")
+
+    dir_processed = project_dir / "data" / "processed" / "GADM"
+    dir_processed.mkdir(parents=True, exist_ok=True)
+
+    sources = settings_downscaling.SOURCE_PROFILES[profile]
+    source_POP = sources["source_POP"]
+    version_POP = sources["version_POP"]
+    source_GDP = sources["source_GDP"]
+    version_GDP = sources["version_GDP"]
+    source_EM = sources["source_EM"]
+    version_EM = sources["version_EM"]
+
+    varname_GDP = settings_downscaling.varname_GDP
+    varname_POP = settings_downscaling.varname_POP
+    varname_EM = settings_downscaling.varname_EM
+    varname_gdp_per_capita = settings_downscaling.varname_gdp_per_capita
+    varname_em_per_gdp_ppp = settings_downscaling.varname_em_per_gdp_ppp
+
+    unit_POP = settings_downscaling.unit_POP
+    unit_GDP = settings_downscaling.unit_GDP_PPP
+    unit_EM = settings_downscaling.unit_EM
+
+    settings_file = project_dir / "downscaling" / "settings_data_locations.json"
+    with open(settings_file, "r") as f:
+        data_files = json.load(f)
+    data_files = apply_root_json(data_files, data_files["data_root"])
+
+    coarse_factor_POP, coarse_factor_GDP, coarse_factor_EM, \
+    res_min_POP, res_min_GDP, res_min_EM = process_grid_data.get_coarsening_factors(population_source=sources["source_POP"],
+                                                                                    gdp_source=sources["source_GDP"],
+                                                                                    emissions_source=sources["source_EM"])
+    resolution_minutes = max(res_min_POP, res_min_GDP, res_min_EM)
+    local_log.info(f"{PRINT_COLORS["yellow"]}Using resolution_minutes={resolution_minutes} for GADM rasterization and ocean pixel assignment{PRINT_COLORS["end"]}")
+
+    match (profile):
+        # GDP (PPP) data sources
+        case "base_run":
+            dir_2UP = Path(data_files["grid"]["run"]["dir_population_2UP_GHSL_2024_M3_run"])
+            local_log.info(f"Reading 2UP population from {dir_2UP}")
+            xr_population, _, df_POP_grid_sum = process_grid_data.read_process_grid_data_socioeconomic(dir_processed=dir_processed, varname=varname_POP, source=source_POP,
+                                                                                                        version=version_POP, SSP_base=SSP_base, coarse_factor=coarse_factor_POP,
+                                                                                                        unit=unit_POP, save=False, check=False, log=local_log)
+            dir_Murakami = Path(data_files["grid"]["run"]["dir_gdp_ppp_Murakami_version_2021_1_run"])
+            local_log.info(f"Reading Murakami 2021_1 GDP (PPP) from {dir_Murakami}")
+            xr_gdp_ppp, _, df_GDP_grid_sum = process_grid_data.read_process_grid_data_socioeconomic(dir_processed=dir_processed, varname=varname_GDP, source=source_GDP,
+                                                                                   version=version_GDP, SSP_base=SSP_base, coarse_factor=coarse_factor_GDP,
+                                                                                   unit=unit_GDP, save=False, check=False, log=local_log)
+            dir_EDGAR = Path(data_files["grid"]["run"]["dir_emissions_EDGAR_2024_run"])
+            local_log.info(f"Reading EDGAR 2024 emissions from {dir_EDGAR}")
+            xr_emissions, _ = process_grid_data.read_process_grid_data_EM(dir_processed=dir_processed, varname=varname_EM,
+                                                                          unit=unit_EM, source=source_EM, version=version_EM,
+                                                                          base_year=base_year, coarse_factor=coarse_factor_EM,
+                                                                          save=False, check=False,
+                                                                          log=local_log)
+        case "sensitivity_3":
+            xr_population = xr.DataArray()
+            xr_gdp_ppp = xr.DataArray()
+            xr_emissions = xr.DataArray()
+        case "sensitivity_4":
+            xr_population = xr.DataArray()
+            xr_gdp_ppp = xr.DataArray()
+            xr_emissions = xr.DataArray()
+        case "sensitivity_5":
+            xr_population = xr.DataArray()
+            xr_gdp_ppp = xr.DataArray()
+            xr_emissions = xr.DataArray()
+        case _:
+            raise ValueError(f"{PRINT_COLORS["red"]}Unknown profile: {profile}{PRINT_COLORS["end"]}")
+
+    da_POP = xr_population[varname_POP].copy()
+    tiff_file_POP = assign_ocean_pixels_to_nearest_region(project_dir, das=[da_POP], model=model,
+                                                          resolution_minutes=resolution_minutes, x_dim="x", y_dim="y",
+                                                          max_distance_km=100, label=f"{profile}_POP")
+    da_GDP = xr_gdp_ppp[varname_GDP].copy()
+    local_log.info(f"Saved population filled GADM region raster to {tiff_file_POP}")
+    tiff_file_GDP = assign_ocean_pixels_to_nearest_region(project_dir, das=[da_GDP], model=model,
+                                                          resolution_minutes=resolution_minutes, x_dim="x", y_dim="y",
+                                                          max_distance_km=100, label=f"{profile}_GDP")
+
+    local_log.info(f"Saved GDP filled GADM region raster to {tiff_file_GDP}")
+    da_EM = xr_emissions[varname_EM].copy()
+    tiff_file_EM = assign_ocean_pixels_to_nearest_region(project_dir, das=[da_EM], model=model,
+                                                         resolution_minutes=resolution_minutes, x_dim="x", y_dim="y",
+                                                         max_distance_km=100, label=f"{profile}_EM")
+    local_log.info(f"Saved emissions filled GADM region raster to {tiff_file_EM}")
+    # all three datasets are processed, now save the filled rasters to the processed directory
+    tiff_file_POP_GDP_EM = assign_ocean_pixels_to_nearest_region(project_dir, das=[da_POP, da_GDP, da_EM], model=model,
+                                                                 resolution_minutes=resolution_minutes, x_dim="x", y_dim="y",
+                                                                 max_distance_km=100, label=f"{profile}_POP_GDP_EM")
+    local_log.info(f"Saved emissions filled GADM region raster to {tiff_file_POP_GDP_EM}")
+
+
+def assign_ocean_pixels_to_nearest_region(project_dir: Path, das: list[xr.DataArray] | xr.DataArray, model: str = "IMAGE",
+                                          resolution_minutes: float = 0.5, x_dim: str = "x", y_dim: str = "y",
+                                          max_distance_km: float = None, label: str = "POP_GDP_EM") -> Path:
+    """
+    Create the GADM country/region raster with `create_GADM_region_raster` and derive a second raster in which
+    ocean pixels (country ID 0) that hold data in `da` take the country ID and region number of the nearest
+    pixel that has a region assigned.
+
+    Parameters:
+        project_dir, model, resolution_minutes : passed on to `create_GADM_region_raster`
+        da : xarray.DataArray with the gridded data (extra dims such as time are collapsed)
+        x_dim, y_dim : names of the longitude/latitude dimensions in `da`
+        max_distance_km : optional cap; ocean pixels further away than this stay ocean
+        label : suffix of the new file name, e.g. "filled_EM" to keep one raster per dataset
+
+    Returns:
+        Path of the adjusted 2-band GeoTIFF (band 1 = country IDs, band 2 = region numbers).
+        The raster made by `create_GADM_region_raster` is kept unchanged.
+    """
+
+    if isinstance(das, xr.DataArray):
+        das = [das]
+
+    # 1. create the country/region raster and read both bands
+    tiff_file = Path(create_GADM_region_raster(project_dir, model=model, resolution_minutes=resolution_minutes, label=""))
+    tiff_file_out = tiff_file.with_name(f"{tiff_file.stem}_{label}.tif")
+    with rasterio.open(tiff_file) as src:
+        countries, regions = src.read(1), src.read(2)
+        profile, transform = src.profile, src.transform
+    height, width = countries.shape
+    xs = transform.c + (np.arange(width) + 0.5) * transform.a     # longitudes of pixel centres
+    ys = transform.f + (np.arange(height) + 0.5) * transform.e    # latitudes of pixel centres
+
+    # 2. mask on the raster grid: True where at least one dataset holds a non-zero, non-NaN value
+    on_grid_any = np.zeros((height, width), dtype=bool)
+    for da in das:
+        has_data = da.notnull() & (da != 0)
+        other_dims = [d for d in has_data.dims if d not in (x_dim, y_dim)]
+        if other_dims:
+            has_data = has_data.any(dim=other_dims)
+        has_data = has_data.sortby([x_dim, y_dim])
+        on_grid = (has_data.sel({x_dim: xr.DataArray(xs, dims="x_raster"), y_dim: xr.DataArray(ys, dims="y_raster")},
+                                method="nearest")
+                   .transpose("y_raster", "x_raster")
+                   .values)
+        in_extent = []  # raster pixels outside the extent of this dataset never count as data
+        for coords_raster, coords_data in ((xs, has_data[x_dim].values), (ys, has_data[y_dim].values)):
+            half_cell = abs(float(np.diff(coords_data).mean())) / 2 if len(coords_data) > 1 else 0.0
+            in_extent.append((coords_raster >= coords_data.min() - half_cell) & (coords_raster <= coords_data.max() + half_cell))
+        on_grid &= in_extent[1][:, None] & in_extent[0][None, :]
+        on_grid_any |= on_grid
+        print(f"{da.name}: ocean pixels with data: {np.count_nonzero(on_grid & (countries == 0)):,}")
+        del has_data, on_grid
+
+    # 3. ocean pixels that need a country/region (target), and the coastal pixels they may take it from (source)
+    target = (countries == 0) & on_grid_any # & in_extent[1][:, None] & in_extent[0][None, :]
+    source = regions > 0
+    coast = source & ~binary_erosion(source, structure=np.ones((3, 3), dtype=bool))
+    rows_tgt, cols_tgt = np.nonzero(target)
+    rows_src, cols_src = np.nonzero(coast)
+
+    # 4. nearest source pixel by great-circle distance (unit vectors on the sphere, so the dateline is handled)
+    n_filled = 0
+    if len(rows_tgt) > 0 and len(rows_src) > 0:
+        lon_rad = np.radians(np.concatenate([xs[cols_src], xs[cols_tgt]]))
+        lat_rad = np.radians(np.concatenate([ys[rows_src], ys[rows_tgt]]))
+        xyz = np.column_stack([np.cos(lat_rad) * np.cos(lon_rad), np.cos(lat_rad) * np.sin(lon_rad), np.sin(lat_rad)])
+        chord, nearest = cKDTree(xyz[:len(rows_src)]).query(xyz[len(rows_src):], workers=-1)
+        distance_km = 2 * np.arcsin(np.clip(chord / 2, 0, 1)) * 6371.0088
+        keep = np.ones(len(nearest), dtype=bool) if max_distance_km is None else distance_km <= max_distance_km
+        rows_fill, cols_fill = rows_tgt[keep], cols_tgt[keep]
+        rows_from, cols_from = rows_src[nearest[keep]], cols_src[nearest[keep]]
+        countries[rows_fill, cols_fill] = countries[rows_from, cols_from]
+        regions[rows_fill, cols_fill] = regions[rows_from, cols_from]
+        n_filled = int(keep.sum())
+    print(f"Ocean pixels with data: {len(rows_tgt):,}, reassigned to nearest region: {n_filled:,}")
+
+    # 5. save the adjusted raster with the same CRS, transform and compression
+    with rasterio.open(tiff_file_out, "w", **profile) as dst:
+        dst.write(countries, 1)
+        dst.write(regions, 2)
+    print(f"Adjusted raster saved to: {tiff_file_out}")
+
+    # 6. save the same two bands as NetCDF next to the GeoTIFF
+    nc_file_out = tiff_file_out.with_suffix(".nc")
+    ds_out = xr.Dataset({"country_id_GADM": (("y", "x"), countries), "region_number": (("y", "x"), regions)},
+                        coords={"y": ys, "x": xs})
+    ds_out = ds_out.rio.write_crs(profile["crs"])
+    ds_out.to_netcdf(nc_file_out, mode="w", engine="netcdf4",
+                     encoding={var: {"zlib": True, "complevel": 4} for var in ds_out.data_vars})
+    print(f"Adjusted raster saved to: {nc_file_out}")
+
+    return tiff_file_out

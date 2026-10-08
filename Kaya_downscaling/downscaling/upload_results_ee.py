@@ -109,16 +109,46 @@ def upload_to_gee(tif_path, asset_id) -> str:
     task_id = match.group(1)
     return task_id
 
-def upload_years(scenario: str, source_version:str, var_type: str, local_tif_folder:Path, years:list, ee_asset_folder:str):
+def upload_tifs(grouping_1: str, local_tif_folder:Path, ee_asset_folder:str):
     # var_type is one of "all", "emissions", "population", or "gdp"
     # init checks
     # make sure ensure_ee_authenticated() is called
     if not local_tif_folder.exists():
         print(f"Folder not found: {local_tif_folder}")
         return
-    upload_asset_folder_root = f"{ee_asset_folder}/{source_version}"
+    upload_asset_folder = f"{ee_asset_folder}/{grouping_1}"
+    ensure_folder_exists(upload_asset_folder, True)
+
+    # determine which files to upload and filter by variable type
+    all_tif_files = list(local_tif_folder.glob("*.tif"))
+
+    # upload each selected file
+    if not all_tif_files:
+        print(f"No .tif files found")
+    else:
+        task_ids = []
+        for tif_path in all_tif_files:
+            asset_id = f"{upload_asset_folder}/{tif_path.stem}"
+            delete_asset_if_exists(asset_id)
+            task_id = upload_to_gee(tif_path, asset_id)
+            task_ids.append(task_id)
+        print(f"Uploading {len(task_ids)} tasks")
+        # Wait for all tasks to complete, and check them one-by-one”
+        for i, task_id in enumerate(task_ids, 1):
+            print(f"Waiting for task {i}/{len(task_ids)}: {task_id}")
+            wait_for_task(task_id)
+        print("All uploads completed.")
+
+def upload_tifs_years(grouping_1: str,grouping_2:str, var_type: str, local_tif_folder:Path, years:list, ee_asset_folder:str):
+    # var_type is one of "all", "emissions", "population", or "gdp"
+    # init checks
+    # make sure ensure_ee_authenticated() is called
+    if not local_tif_folder.exists():
+        print(f"Folder not found: {local_tif_folder}")
+        return
+    upload_asset_folder_root = f"{ee_asset_folder}/{grouping_1}"
     ensure_folder_exists(upload_asset_folder_root, True)
-    upload_asset_folder = f"{ee_asset_folder}/{source_version}/{scenario}"
+    upload_asset_folder = f"{ee_asset_folder}/{grouping_1}/{grouping_2}"
     ensure_folder_exists(upload_asset_folder, True)
 
     # determine which files to upload and filter by variable type

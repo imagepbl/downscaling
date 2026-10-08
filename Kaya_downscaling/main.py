@@ -30,37 +30,6 @@ The environment variables `GDAL_DATA`, `PROJ_LIB`, and `PROJ_DATA` are set so th
 In addition, `pyproj.datadir.set_data_dir` is used to explicitly direct PROJ tothe correct data directory at runtime.
 """
 
-def combine_emissions_output(folder: Path) -> pd.DataFrame:
-
-    path = folder / "Emissions_combined.xlsx"
-    # remove Excel file it exists
-    if path.exists():
-        path.unlink()
-
-    frames = []
-    for file in folder.glob("Emissions_*.csv"):
-        print(file)
-        stem = file.stem
-        if stem.startswith("Emissions_urban_region_"):
-            coverage, rest = "urban", stem.removeprefix("Emissions_urban_region_")
-        else:
-            coverage, rest = "total", stem.removeprefix("Emissions_region_")
-        scenario, round_col, _, harmonised = rest.rsplit("_", 3)
-        round_ = f"{round_col}_round"
-        df = pd.read_csv(file, sep=";")
-        df = df.rename(columns={"Emissions_CO2_Excl_shipping_aviation_AFOLU": "Emissions_CO2_Excl_shipping_aviation_AFOLU_grid_summed",
-                       "time": "year"})
-        df.insert(0, "Coverage", coverage)
-        df.insert(1, "Scenario", scenario)
-        df.insert(2, "Round", round_)
-        df.insert(3, "Harmonised", harmonised == "harmonised")
-        frames.append(df)
-
-    combined = pd.concat(frames, ignore_index=True)
-    combined.to_excel(path, sheet_name="Emissions", index=False)
-
-    return combined
-
 if __name__ == "__main__":
     '''
     -Process data ('copy' to run folder or 'no_copy)
@@ -124,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--version", type=str, help="data version (e.g. version_7, version_2021_1, 2025_04_18)")
 
     parser.add_argument("--create_GADM_raster", action="store_true", help="create GADM raster file for countries")
+    parser.add_argument("--create_GADM_raster_profile", action="store_true", help="create GADM raster file for countries")
     parser.add_argument("--resolution", type=str, help="Resolution for GADM raster in minutes")
 
     parser.add_argument("--download_regions", action="store_true", help="Download regions from ScenarioMIP")
@@ -136,6 +106,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, help="Model from which scenario input is used (e.g. IMAGE, REMIND")
     parser.add_argument("--profile", type=str, help="Settings for input files")
     parser.add_argument("--emissions", type=str, help="net" or "gross")
+    parser.add_argument("--downscale_SE", type=str, help="downscale SE data (Population, GDP|PPP, Emissions)")
 
     parser.add_argument("--global_min", type=str, help="minimum for plot range emissions")
     parser.add_argument("--global_max", type=str, help="maximum for plot range emissions")
@@ -144,7 +115,17 @@ if __name__ == "__main__":
 
     parser.add_argument("--upload", action="store_true", help="Upload results to Google Earth Engine")
 
-    parser.add_argument("--compare", action="store_true", help="Compare two raster files")
+    parser.add_argument("--compare_choose", action="store_true", help="Compare two raster files")
+
+    parser.add_argument("--compare_tifs", action="store_true", help="Compare two raster files")
+    parser.add_argument("--dir1", type=str, help="First directory containing raster files")
+    parser.add_argument("--dir2", type=str, help="Second directory containing raster files")
+    parser.add_argument("--filename", type=str, help="Name of the raster file to compare")
+    parser.add_argument("--label", type=str, help="Label for the comparison output file")
+
+    parser.add_argument("--compare_ncs", action="store_true", help="Compare two raster files")
+    parser.add_argument("--filename1", type=str, help="Name of the raster file to compare")
+    parser.add_argument("--filename2", type=str, help="Name of the second raster file to compare")
 
     parser.add_argument("--run_urban_aggregation", action="store_true", help="Run urban aggregation")
 
@@ -180,6 +161,10 @@ if __name__ == "__main__":
         if arguments.model is None or arguments.resolution is None:
             parser.error("--Creating GADM raster requires a model and a resolution to be specified with --model and --resolution")
         IAM_maps.create_GADM_region_raster(project_dir, arguments.model, float(arguments.resolution), True)
+    if hasattr(arguments, 'create_GADM_raster_profile') and arguments.create_GADM_raster_profile is True:
+        if arguments.profile is None or arguments.model is None or arguments.ssp_baseline is None:
+            parser.error("--create_GADM_raster_profile requires a profile, model, and SSP baseline to be specified")
+        IAM_maps.create_GADM_region_raster_profile(project_dir, arguments.profile, arguments.model, arguments.ssp_baseline, 2020)
     # 3. Process DLL data on urban areas (combine geopandas dataframe with csv dataframe on GDAM_ID)
     if hasattr(arguments, 'process_urban_classification') and arguments.process_urban_classification is True:
         process_urban_grid_emissions.process_urban_classification_data(Path(project_dir), save_gdf=False, plot=False)
@@ -206,7 +191,16 @@ if __name__ == "__main__":
             net_emissions = True
         else:
             net_emissions = False
-        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, int(arguments.convergence_year), net_emissions, True)
+        if arguments.downscale_SE is None:
+            parser.error("--downscale_emissions requires a yes/no value to be specified for --downscale_SE")
+        match arguments.downscale_SE:
+            case "yes":
+                downscale_SE = True
+            case "no":
+                downscale_SE = False
+            case _:
+                parser.error("--downscale_SE requires a value of 'yes' or 'no'")
+        downscaling.downscale_emissions(project_dir, arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, int(arguments.convergence_year), net_emissions, downscale_SE)
 
     # plot results
     if hasattr(arguments, 'plot') and arguments.plot is True:
@@ -224,26 +218,50 @@ if __name__ == "__main__":
             net_emissions = True
         else:
             net_emissions = False
+        match arguments.downscale_SE:
+            case "yes":
+                downscale_SE = True
+            case "no":
+                downscale_SE = False
+            case _:
+                parser.error("--downscale_SE requires a value of 'yes' or 'no'")
         if arguments.global_min is None or arguments.global_max is None:
-            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, None, None)
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, downscale_SE, None, None)
         else:
-            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, float(arguments.global_min), float(arguments.global_max))
+            downscaling.plot_results(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, downscale_SE, float(arguments.global_min), float(arguments.global_max))
     # TOOLS
     # upload results to Google Earth Engine
     if hasattr(arguments, 'upload') and arguments.upload is True:
-        if arguments.model is None or arguments.scenario is None or arguments.profile is None:
+        if arguments.model is None or arguments.scenario is None or arguments.profile is None or arguments.ssp_baseline is None or arguments.convergence_year is None or arguments.downscale_SE is None:
             parser.error("--upload requires a --model <model>, --scenario <scenario>, and --profile <profile> to be specified")
-        downscaling.upload_to_GEE(arguments.scenario, arguments.model, arguments.profile)
+        if arguments.emissions not in ["net", "gross"]:
+            parser.error("--emissions requires a value of 'net' or 'gross'")
+        elif arguments.emissions == "net":
+            net_emissions = True
+        else:
+            net_emissions = False
+        downscaling.upload_to_GEE(arguments.scenario, arguments.model, arguments.profile, arguments.ssp_baseline, arguments.convergence_year, net_emissions, arguments.downscale_SE)
+
     # compare two raster files
-    if hasattr(arguments, 'compare') and arguments.compare is True:
+    if hasattr(arguments, 'compare_choose') and arguments.compare_choose is True:
         downscaling.compare_two_raster_files()
-    # run urban aggregation
-    # if hasattr(arguments, 'run_urban_aggregation') and arguments.run_urban_aggregation is True:
-    #     run_aggregration_to_urban(model=arguments.model, scenario="ELV-SSP2-CP", SSP_base="SSP2", rounds=rounds)
-    #     combine_emissions_output(project_dir / "data" / "output")
+    if hasattr(arguments, 'compare_tifs') and arguments.compare_tifs is True:
+        if arguments.dir1 is None or arguments.dir2 is None or arguments.filename is None:
+            parser.error("--compare_tifs requires --dir1 <directory1>, --dir2 <directory2>, --filename <filename>, and --label to be specified")
+        downscaling.compare_dirs_tif_raster_files([arguments.dir1, arguments.dir2], arguments.filename, arguments.label)
+    if hasattr(arguments, 'compare_ncs') and arguments.compare_ncs is True:
+        if arguments.dir1 is None or arguments.dir2 is None or arguments.filename1 is None or arguments.filename2 is None:
+            parser.error("--compare_ncs requires --dir1 <directory1>, --dir2 <directory2>, --filename1 <filename1>, and --filename2 <filename2>,  and --label <label> to be specified")
+        downscaling.compare_dirs_netcdf_files([arguments.dir1, arguments.dir2],
+                                              [arguments.filename1, arguments.filename2],
+                                              ["Emissions_CO2_Excl_shipping_aviation_AFOLU", "Emissions_CO2_Excl_shipping_aviation_AFOLU"],
+                                              "time", plot_year=2050,
+                                              label=arguments.label)
+
 
     # if no arguments, print message
     if not any(vars(arguments).values()):
         print("No arguments provided. Use -h or --help for more information.")
+
 
 

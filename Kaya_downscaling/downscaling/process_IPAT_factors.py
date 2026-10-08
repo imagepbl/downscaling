@@ -130,26 +130,26 @@ def compare_IAM_grid_regions_GDP_per_capita(ds:xr.Dataset, ds_varname:str,
             df_display_grid[col] = df_display_grid[col].apply(lambda x: f'{x:,.0f}')
 
     # compare projections and summed grid data per region
-    df_IAM_projection_gdp_ppp_per_population_check = df_IAM.copy()
-    df_IAM_projection_gdp_ppp_per_population_check.drop(["model", "scenario"], axis=1, inplace=True)
-    df_IAM_projection_gdp_ppp_per_population_check.columns = df_IAM_projection_gdp_ppp_per_population_check.columns.str.lower()
+    df_IAM_projection_gdp_ppp_per_capita_check = df_IAM.copy()
+    df_IAM_projection_gdp_ppp_per_capita_check.drop(["model", "scenario"], axis=1, inplace=True)
+    df_IAM_projection_gdp_ppp_per_capita_check.columns = df_IAM_projection_gdp_ppp_per_capita_check.columns.str.lower()
 
-    df_grid_gdp_ppp_per_population_regional_check = df_grid_regional.copy()
-    df_grid_gdp_ppp_per_population_regional_check["value"] /= 1e3  # convert to million unit
+    df_grid_gdp_ppp_per_capita_regional_check = df_grid_regional.copy()
+    df_grid_gdp_ppp_per_capita_regional_check["value"] /= 1e3  # convert to million unit
 
-    df_gdp_ppp_per_population_regional_check = pd.merge(df_IAM_projection_gdp_ppp_per_population_check, df_grid_gdp_ppp_per_population_regional_check, on=["region_number", "year"], suffixes=("_IAM", "_grid_sum"))
-    df_gdp_ppp_per_population_regional_check["diff_perc"] = 100*(df_gdp_ppp_per_population_regional_check["value_grid_sum"]/df_gdp_ppp_per_population_regional_check["value_IAM"]-1)
-    df_gdp_ppp_per_population_regional_check = df_gdp_ppp_per_population_regional_check[df_gdp_ppp_per_population_regional_check["year"].isin(selection_years)]
-    df_gdp_ppp_per_population_regional_check = df_gdp_ppp_per_population_regional_check.pivot(index=["region_number"], columns="year", values=["value_IAM", "value_grid_sum", "diff_perc"])
+    df_gdp_ppp_per_capita_regional_check = pd.merge(df_IAM_projection_gdp_ppp_per_capita_check, df_grid_gdp_ppp_per_capita_regional_check, on=["region_number", "year"], suffixes=("_IAM", "_grid_sum"))
+    df_gdp_ppp_per_capita_regional_check["diff_perc"] = 100*(df_gdp_ppp_per_capita_regional_check["value_grid_sum"]/df_gdp_ppp_per_capita_regional_check["value_IAM"]-1)
+    df_gdp_ppp_per_capita_regional_check = df_gdp_ppp_per_capita_regional_check[df_gdp_ppp_per_capita_regional_check["year"].isin(selection_years)]
+    df_gdp_ppp_per_capita_regional_check = df_gdp_ppp_per_capita_regional_check.pivot(index=["region_number"], columns="year", values=["value_IAM", "value_grid_sum", "diff_perc"])
     # Create a formatted copy
-    df_display_compare = df_gdp_ppp_per_population_regional_check.copy()
+    df_display_compare = df_gdp_ppp_per_capita_regional_check.copy()
     for col in df_display_compare.columns:
         df_display_compare[col] = df_display_compare[col].apply(lambda x: f'{x:.1f}')
 
     return df_display_grid, df_display_compare
 
 #**************************GDP PER CAPITA*******************************************
-def check_location_for_GDP_per_pop_calculation(ds:xr.Dataset, varname):
+def check_location_for_GDP_per_capita_calculation(ds:xr.Dataset, varname):
 
     # Define city center coordinates (lat, lon)
     cities = {
@@ -245,6 +245,10 @@ def check_POP_GDP_alignment(dir_processed:Path, xr_population_processed, xr_gdp_
     plt.savefig(save_path)
     log.info(f"Saved population-GDP alignment plot to: {save_path}")
 
+def _transforms_are_close(t1: Affine, t2: Affine, rtol: float = 1e-5) -> bool:
+    """Compare two Affine transforms element-wise with a tolerance."""
+    return np.allclose(t1[:6], t2[:6], rtol=rtol)
+
 def process_factors_GDP_POP(ds_population:xr.Dataset, ds_gdp_ppp:xr.Dataset,
                             varname_population:str, varname_gdp_ppp:str,
                             unit_population:str, unit_gdp_ppp:str,
@@ -323,15 +327,17 @@ def _transforms_are_close(t1: Affine, t2: Affine, rtol: float = 1e-5) -> bool:
     """Compare two Affine transforms element-wise with a tolerance."""
     return np.allclose(t1[:6], t2[:6], rtol=rtol)
 
-def calculate_gdp_per_pop_global(xr_population: xr.Dataset, varname_POP: str,
-                                 xr_gdp_pc: xr.Dataset, varname_GDPpc: str) -> pd.DataFrame:
+def calculate_gdp_per_capita_global(xr_population: xr.Dataset, varname_POP: str, xr_gdp_pc: xr.Dataset, varname_GDPpc: str) -> pd.DataFrame:
 
-
-    # check
+    # look for any 0 entries and their time value
     pop = xr_population[varname_POP].assign_coords(x=xr_gdp_pc["x"], y=xr_gdp_pc["y"])
     valid = xr_gdp_pc[varname_GDPpc].notnull()
     den = pop.where(valid).sum(dim=["y", "x"]).compute()
-    print(f"{PRINT_COLORS["cyan"]}Look for any 0 entries and their time value: {den}{PRINT_COLORS['end']}")   # look for any 0 entries and their time value
+
+    # # Check: calculate the number of 0 entries in the population grid for each time step and calc percentage of total population
+    # num_zero_entries = (pop == 0).sum(dim=["y", "x"]).compute()
+    # percentage_zero_entries = (num_zero_entries / den) * 100 if den != 0 else 0
+    # print(f"{PRINT_COLORS["cyan"]}Calculation GDP per capita: Percentage of population 0 entries: {percentage_zero_entries:.2f}%{PRINT_COLORS['end']}")
 
     # Snap population onto the GDP/POP grid so the multiply pairs matching cells.
     # No-op if coords already match; fixes float-rounding misalignment if they don't.
@@ -344,14 +350,14 @@ def calculate_gdp_per_pop_global(xr_population: xr.Dataset, varname_POP: str,
     den = pop.where(valid).sum(dim=["y", "x"])
 
     gdp_pc_global = num / den.where(den != 0)
-    gdp_pc_global_df = gdp_pc_global.to_dataframe(name="GDP_pc_global").reset_index()
+    gdp_pc_global_df = gdp_pc_global.to_dataframe(name=varname_GDPpc).reset_index()
 
     return gdp_pc_global_df
 
-def calculate_gdp_per_pop(ds_population:xr.Dataset, ds_gdp:xr.Dataset,
-                          varname_POP:str, varname_GDP:str, varname_gpd_per_pop:str,
-                          unit_pop:str, unit_gdp_ppp:str,
-                          log:logging.Logger=local_log) -> xr.Dataset:
+def calculate_gdp_per_capita(ds_population:xr.Dataset, ds_gdp:xr.Dataset,
+                             varname_POP:str, varname_GDP:str, varname_gdp_per_capita:str,
+                             unit_pop:str, unit_gdp_ppp:str,
+                             log:logging.Logger=local_log) -> xr.Dataset:
     '''
     Calculate GDP per capita
     GDP|PPP / Population
@@ -374,17 +380,17 @@ def calculate_gdp_per_pop(ds_population:xr.Dataset, ds_gdp:xr.Dataset,
 
     #unit_pop = ds_population[varname_POP].attrs["unit"]
     #unit_gdp_ppp = ds_gdp[varname_GDP].attrs["unit"]
-    ds_gdp_per_pop = ds_gdp[varname_GDP] / ds_population[varname_POP].where(ds_population[varname_POP] > 0)
-    ds_gdp_per_pop.name = varname_gpd_per_pop
-    ds_gdp_per_pop.attrs["unit"] = f"{unit_gdp_ppp} / {unit_pop}"
+    ds_gdp_per_capita = ds_gdp[varname_GDP] / ds_population[varname_POP].where(ds_population[varname_POP] > 0)
+    ds_gdp_per_capita.name = varname_gdp_per_capita
+    ds_gdp_per_capita.attrs["unit"] = f"{unit_gdp_ppp} / {unit_pop}"
 
-    ds_gdp_per_pop = ds_gdp_per_pop.to_dataset(name=varname_gpd_per_pop)
+    ds_gdp_per_capita = ds_gdp_per_capita.to_dataset(name=varname_gdp_per_capita)
 
     # Write CRS and transform onto the result ---
-    ds_gdp_per_pop = ds_gdp_per_pop.rio.write_crs(crs_pop)
-    ds_gdp_per_pop = ds_gdp_per_pop.rio.write_transform(transform_pop)
+    ds_gdp_per_capita = ds_gdp_per_capita.rio.write_crs(crs_pop)
+    ds_gdp_per_capita = ds_gdp_per_capita.rio.write_transform(transform_pop)
 
-    return ds_gdp_per_pop
+    return ds_gdp_per_capita
 
 
 #**************************EM per GDP (PPP) *******************************************
@@ -640,6 +646,7 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
                                               xr_IAM_regions_grid_downscaling:xr.Dataset,
                                               df_IAM_EM:pd.DataFrame,
                                               years_downscaling:list,
+                                              save_dir:Path,
                                               log: logging.Logger=local_log) -> xr.DataArray:
     # Calculate correction factors and redistribute se_indicator (for emissions, only base year)
     nr_regions = df_IAM_EM["region_number"].nunique()
@@ -702,6 +709,50 @@ def calculate_harmonisation_factors_emissions(xr_em: xr.Dataset, varname_EM:str,
                 'x': xr_em.x},
         dims=['time', 'y', 'x']
     )
+
+    # calculate min, max, mean, median of correction factors for each time step
+    min_correction_factors = xr_em_correction_factors.min(dim=['y', 'x']).compute()
+    max_correction_factors = xr_em_correction_factors.max(dim=['y', 'x']).compute()
+    mean_correction_factors = xr_em_correction_factors.mean(dim=['y', 'x']).compute()
+    median_correction_factors = xr_em_correction_factors.median(dim=['y','x']).compute()
+    # save to dataframe
+    df_correction_factors_stats = pd.DataFrame({
+        'time': xr_em_correction_factors.time.values,
+        'min': min_correction_factors.values,
+        'max': max_correction_factors.values,
+        'mean': mean_correction_factors.values,
+        'median': median_correction_factors.values
+    })
+    df_correction_factors_stats.to_csv(save_dir / "correction_factors_stats.csv", index=False, sep=";")
+    log.info(f"Correction factors statistics:\n{df_correction_factors_stats}")
+
+    # plot histogram of correction factors for each time step
+    for time in xr_em_correction_factors.time.values:
+        plt.figure(figsize=(10, 6))
+        plt.hist(xr_em_correction_factors.sel(time=time).values.flatten(), bins=50, color='blue', alpha=0.7)
+        plt.title(f"Histogram of Correction Factors for {time}")
+        plt.xlabel("Correction Factor")
+        plt.ylabel("Frequency")
+        plt.grid()
+        plt.tight_layout()
+        plt.savefig(save_dir / f"correction_factors_histogram_{time}.png")
+        plt.close()
+        log.info(f"Saved histogram of correction factors for {time} to {save_dir / f'correction_factors_histogram_{time}.png'}")
+
+    # plot histogram of correction factors for each time step, excluding the value 1
+    for time in xr_em_correction_factors.time.values:
+        plt.figure(figsize=(10, 6))
+        data_excluding_one = xr_em_correction_factors.sel(time=time).values.flatten()
+        data_excluding_one = data_excluding_one[data_excluding_one != 1]
+        plt.hist(data_excluding_one, bins=50, color='green', alpha=0.7)
+        plt.title(f"Histogram of Correction Factors (Excluding 1) for {time}")
+        plt.xlabel("Correction Factor")
+        plt.ylabel("Frequency")
+        plt.grid()
+        plt.tight_layout()
+        plt.savefig(save_dir / f"correction_factors_histogram_excl_1_{time}.png")
+        plt.close()
+        log.info(f"Saved histogram of correction factors (excluding 1) for {time} to {save_dir / f'correction_factors_histogram_excl_1_{time}.png'}")
 
     return xr_em_correction_factors
 

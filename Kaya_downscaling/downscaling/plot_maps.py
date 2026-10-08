@@ -474,7 +474,8 @@ def plot_IPAT_summary(dir_processed:Path, add_txt:str,
 
         return True
 
-def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, add_text:str, varname:str, year:int):
+def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, add_text:str, varname:str, year:int,
+                  hist_y_max:int=None, vmin:float=None, vmax:float=None) -> None:
 
     # Create a regular axis for the histogram and a GeoAxes for the map (required by Cartopy)
     fig = plt.figure(figsize=(12, 4))
@@ -486,12 +487,16 @@ def plot_hist_map(dir_processed:Path, xr_year_plot:xr.Dataset, add_text:str, var
     p99 = float(data_year.quantile(0.99))
 
     xr_year_plot[varname].sel(time=year).plot.hist(ax=ax_hist, bins=100, color="lightblue", edgecolor="black", range=(min(0, p001), p99))
-    ax_hist.set_title(f"Histogram of CO2 emissions for {add_text} and year {year}")
+    ax_hist.set_title(f"Histogram of CO2 emissions for\n{add_text} and year {year}")
     ax_hist.set_xlabel("CO2 emissions")
     ax_hist.set_ylabel("Frequency")
+    if hist_y_max is not None:
+        ax_hist.set_ylim(0, hist_y_max)
+    else:
+        ax_hist.set_ylim(0, 500000)
 
     # Plot on a Mercator GeoAxes
-    plot_Mercator_projection(xr_year_plot[varname].sel(time=year), ax=ax_map, title="CO2 emissions")
+    plot_Mercator_projection(xr_year_plot[varname].sel(time=year), ax=ax_map, title="CO2 emissions", vmin=vmin, vmax=vmax, transform="log")
     ax_map.set_xlabel("Longitude")
     ax_map.set_ylabel("Latitude")
 
@@ -634,16 +639,11 @@ def plot_boxplot_per_region(project_dir:Path, dir_processed:Path, file_IAM_model
         del ds_year, em_flat, region_flat, em_valid, region_valid
 
     axes[0].set_ylabel(unit, fontsize=12)
-    fig.suptitle(f"{varname} per grid cell per model region for scenario {scenario}", y=1.02, fontsize=16)
+    fig.suptitle(f"{varname}\nper grid cell per model region\nfor scenario {scenario}", y=1.02, fontsize=16)
     plt.tight_layout()
 
     save_file = dir_processed / "figures" / f"boxplot_per_region_{varname.replace('|', '_').replace(' ', '_')}_{profile}_{model}_{scenario}.png"
     plt.savefig(save_file, dpi=300, bbox_inches="tight")
-
-def plot_urban_emissions_per_region(project_dir:Path, df_urban_emissions:pd.DataFrame):
-    # This function can be implemented similarly to plot_boxplot_per_region, but using the percentage_class variable from the emissions_urban_regional_sums dataframe.
-    # It would create boxplots of the percentage of emissions in urban areas per region, for each year.
-    pass
 
 def plot_factors_GDP_POP(save_dir:Path, source_pop:None|str, version_pop:None|str, source_gdp_ppp:None|str, version_gdp_ppp:None|str, ds_population:None|xr.Dataset, ds_gdp_ppp:None|xr.Dataset, ds_gdp_per_pop:None|xr.Dataset,
                          year:int=2020, coarsen:int=10):

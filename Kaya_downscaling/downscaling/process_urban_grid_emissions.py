@@ -12,6 +12,7 @@ from matplotlib.patches import Patch
 import xarray as xr
 import geopandas as gpd
 import rasterio.features
+from rasterio.windows import Window
 import xarray as xr
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -192,52 +193,7 @@ def _assert_grids_match(da_ref: xr.DataArray, da_other: xr.DataArray, tol_fracti
     if crs_ref is not None and crs_other is not None and crs_ref != crs_other:
         raise ValueError(f"CRS mismatch: reference {crs_ref} vs other {crs_other}.")
 
-def create_urban_id_raster(gdf_urban_classification: gpd.GeoDataFrame, ds_ref: xr.Dataset, cache_path: Path | None = None,
-                           use_saved: bool = True, log: logging.Logger=dummy_log) -> np.ndarray:
-    '''
-    Burn a 1-based polygon index onto the grid of ds_ref once (0 = outside every polygon) and return it as a raw
-    NumPy array. If use_saved is True and cache_path exists (and its shape matches the grid), load it from disk;
-    otherwise rasterize, and when cache_path is given save it as a .npy for reuse. Because GADM districts do not
-    overlap, this id grid reproduces a direct per-value burn exactly.
 
-    Each cell in the saved .npy array holds a polygon id: a small unsigned integer that says which polygon of
-    the gdf (gdf_urban_classification) that grid cell's centre falls inside. It's a label, not a value.
-    0 is special: it's the fill -- it means "this cell's centre landed inside no polygon".
-    Any other number is the 1-based row index of the polygon in gdf_urban_classification whose interior contains
-    the cell centre (1 = first row, 2 = second row, etc.), independent of whether that polygon is urban in any
-    given year -- urban/non-urban is applied later via each year's cluster_<year> column.
-    '''
-    out_shape = (ds_ref.rio.height, ds_ref.rio.width)
-
-    # If use_saved is True and cache_path exists, load it and check the shape
-    if use_saved and cache_path is not None and Path(cache_path).exists():
-        ids = np.load(Path(cache_path))
-        if ids.shape != out_shape:
-            raise ValueError(f"Cached id raster at {cache_path} has shape {ids.shape}, but the current grid is "
-                             f"{out_shape}. Delete it or pass use_saved=False to rebuild.")
-        return ids
-    elif not Path(cache_path).exists():
-        log.info(f"{PRINT_COLORS['yellow']}Cached id raster at {cache_path} does not exist; creating it now.{PRINT_COLORS['end']}")
-
-    # Rasterize the polygon geometries onto the grid of ds_ref, using a 1-based index for each polygon. Cells outside every polygon get 0.
-    if gdf_urban_classification.crs != ds_ref.rio.crs:
-        gdf_urban_classification = gdf_urban_classification.to_crs(ds_ref.rio.crs)
-    id_dtype = "uint16" if len(gdf_urban_classification) <= np.iinfo("uint16").max else "int32"
-    ids = rasterio.features.rasterize(((geom, i) for i, geom in enumerate(gdf_urban_classification.geometry, start=1)), out_shape=out_shape,
-                                      transform=ds_ref.rio.transform(), fill=0, all_touched=False, dtype=id_dtype)
-
-    # If cache_path is given, save the id raster to disk for reuse
-    if cache_path is not None:
-        cache_path = Path(cache_path)
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        # print metadata about the rasterized ids
-        log.info(f"\nRasterized {len(gdf_urban_classification)} polygons onto grid {out_shape} (dtype={id_dtype}); saving to {cache_path}")
-        log.info(f"Unique ids: {np.unique(ids)}")
-        np.save(cache_path, ids)
-
-    log.info(f"Created urban id raster with shape {ids.shape}, dtype {ids.dtype}, and {len(np.unique(ids))} unique ids.")
-
-    return ids
 
 def plot_urban_nan(plot_dir: Path, xr_urban:xr.Dataset, varname:str, add_txt:str, log: logging.Logger=dummy_log) -> None:
 
@@ -292,6 +248,74 @@ def plot_urban_rural_map(plot_dir: Path, xr_combined:xr.Dataset, varname:str, ad
     plt.tight_layout()
     plt.savefig(plot_dir / f"urban_mask_map_{add_txt}.png", dpi=150, bbox_inches="tight")
 
+def save_urban_tifs(gdf: gpd.GeoDataFrame, ids: np.ndarray, ds_ref: xr.Dataset, years: list[int], output_dir: Path,
+                    add_txt: str = "", nodata: int = 255, strip_height: int = 2048,
+                    log: logging.Logger = dummy_log) -> None:
+    """
+    Write one uint8 GeoTIFF per year (1 urban, 0 non-urban, nodata outside every polygon or where the cluster
+    value is missing) from the polygon id grid. Written in strips to keep memory low.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    height, width = ids.shape
+    profile = {"driver": "GTiff", "height": height, "width": width, "count": 1, "dtype": "uint8",
+               "crs": ds_ref.rio.crs, "transform": ds_ref.rio.transform(), "nodata": nodata, "compress": "deflate",
+               "tiled": True, "blockxsize": 512, "blockysize": 512, "BIGTIFF": "IF_SAFER"}
+    for year in years:
+        lut = np.concatenate(([nodata], gdf[f"cluster_{year}"].fillna(nodata).to_numpy())).astype("uint8")
+        tif_path = output_dir / f"urban_classification_{year}{add_txt}.tif"
+        with rasterio.open(tif_path, "w", **profile) as dst:
+            for row_off in range(0, height, strip_height):
+                n_rows = min(strip_height, height - row_off)
+                dst.write(lut[ids[row_off:row_off + n_rows]], 1, window=Window(0, row_off, width, n_rows))
+        log.info(f"Saved urban classification tif for {year} to {tif_path}")
+
+def create_urban_id_raster(gdf_urban_classification: gpd.GeoDataFrame, ds_ref: xr.Dataset, cache_path: Path | None = None,
+                           use_saved: bool = True, log: logging.Logger=dummy_log) -> np.ndarray:
+    '''
+    Burn a 1-based polygon index onto the grid of ds_ref once (0 = outside every polygon) and return it as a raw
+    NumPy array. If use_saved is True and cache_path exists (and its shape matches the grid), load it from disk;
+    otherwise rasterize, and when cache_path is given save it as a .npy for reuse. Because GADM districts do not
+    overlap, this id grid reproduces a direct per-value burn exactly.
+
+    Each cell in the saved .npy array holds a polygon id: a small unsigned integer that says which polygon of
+    the gdf (gdf_urban_classification) that grid cell's centre falls inside. It's a label, not a value.
+    0 is special: it's the fill -- it means "this cell's centre landed inside no polygon".
+    Any other number is the 1-based row index of the polygon in gdf_urban_classification whose interior contains
+    the cell centre (1 = first row, 2 = second row, etc.), independent of whether that polygon is urban in any
+    given year -- urban/non-urban is applied later via each year's cluster_<year> column.
+    '''
+    out_shape = (ds_ref.rio.height, ds_ref.rio.width)
+
+    # If use_saved is True and cache_path exists, load it and check the shape
+    if use_saved and cache_path is not None and Path(cache_path).exists():
+        ids = np.load(Path(cache_path))
+        if ids.shape != out_shape:
+            raise ValueError(f"Cached id raster at {cache_path} has shape {ids.shape}, but the current grid is "
+                             f"{out_shape}. Delete it or pass use_saved=False to rebuild.")
+        return ids
+    elif not Path(cache_path).exists():
+        log.info(f"{PRINT_COLORS['yellow']}Cached id raster at {cache_path} does not exist; creating it now.{PRINT_COLORS['end']}")
+
+    # Rasterize the polygon geometries onto the grid of ds_ref, using a 1-based index for each polygon. Cells outside every polygon get 0.
+    if gdf_urban_classification.crs != ds_ref.rio.crs:
+        gdf_urban_classification = gdf_urban_classification.to_crs(ds_ref.rio.crs)
+    id_dtype = "uint16" if len(gdf_urban_classification) <= np.iinfo("uint16").max else "int32"
+    ids = rasterio.features.rasterize(((geom, i) for i, geom in enumerate(gdf_urban_classification.geometry, start=1)), out_shape=out_shape,
+                                      transform=ds_ref.rio.transform(), fill=0, all_touched=False, dtype=id_dtype)
+
+    # If cache_path is given, save the id raster to disk for reuse
+    if cache_path is not None:
+        cache_path = Path(cache_path)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        # print metadata about the rasterized ids
+        log.info(f"\nRasterized {len(gdf_urban_classification)} polygons onto grid {out_shape} (dtype={id_dtype}); saving to {cache_path}")
+        log.info(f"Unique ids: {np.unique(ids)}")
+        np.save(cache_path, ids)
+
+    log.info(f"Created urban id raster with shape {ids.shape}, dtype {ids.dtype}, and {len(np.unique(ids))} unique ids.")
+
+    return ids
+
 def _rasterize_urban_value(gdf: gpd.GeoDataFrame, cluster_col: str, ds_ref: xr.Dataset,
                             ids: np.ndarray | None = None) -> xr.DataArray:
     '''
@@ -306,13 +330,14 @@ def _rasterize_urban_value(gdf: gpd.GeoDataFrame, cluster_col: str, ds_ref: xr.D
     return xr.DataArray(lut[ids], coords={y_dim: ds_ref[y_dim], x_dim: ds_ref[x_dim]}, dims=(y_dim, x_dim), name="urban")
 
 def aggregate_urban_values(project_dir: Path,
-                           profile: str, add_txt: str,
+                           save_dir: Path, add_txt: str,
+                           profile: str,
                            xr_dataset: xr.Dataset,
                            gdf_urban_classification: gpd.GeoDataFrame,
-                           base_year: int = 2020,
                            varname: str = "Emissions_CO2_Excl_shipping_aviation_AFOLU",
                            region_varname: str = "region_number", final_year: int = 2100,
-                           use_saved: bool = True, log: logging.Logger = dummy_log) -> xr.Dataset:
+                           use_saved: bool = True, save_tif: bool = False,
+                           log: logging.Logger = dummy_log) -> xr.Dataset:
     '''
     Aggregate emissions per region and year based on urban classification, using rasterio.features.rasterize
     (centre-based, no geocube, no fraction) so it can be compared against the geocube version.
@@ -331,9 +356,12 @@ def aggregate_urban_values(project_dir: Path,
 
     # burn the polygon geometry once (or load it); every year is then a cheap lookup on this id grid
     height, width = xr_dataset.rio.height, xr_dataset.rio.width
-    id_cache_path = project_dir / "data" / "processed" / f"{profile}" / f"urban_id_raster_{profile}_{height}x{width}.npy"
+    id_cache_path = save_dir / f"urban_id_raster_{profile}_{height}x{width}.npy"
     print(f"Creating or loading polygon id raster (use_saved={use_saved}) at {id_cache_path}...")
     ids = create_urban_id_raster(gdf_urban_classification, xr_dataset, cache_path=id_cache_path, use_saved=use_saved)
+
+    if save_tif:
+        save_urban_tifs(gdf_urban_classification, ids, xr_dataset, common_years, save_dir / "urban_tif", add_txt=add_txt, log=log)
 
     # one (y, x) value grid per year; coords taken from xr_dataset so they align exactly
     print(f"Building urban classification grids for {len(common_years)} common years...")
@@ -367,7 +395,7 @@ def aggregate_urban_values(project_dir: Path,
         rows.append({"region": r, "total": total, "urban": urban, "rural": rural})
     df_cell_counts = pd.DataFrame(rows)
     log.info(f"Cell counts per region:\n{tabulate(df_cell_counts, headers="keys", tablefmt="grid", intfmt=",", showindex=False)}")
-    df_cell_counts.to_csv(project_dir / "data/check/urban_comparison" / f"cell_counts_per_region{add_txt}.csv", index=False)
+    df_cell_counts.to_csv(save_dir / f"cell_counts_per_region{add_txt}.csv", index=False)
 
     plot_dir = project_dir / "figures" / "check"
     plot_dir.mkdir(parents=True, exist_ok=True)

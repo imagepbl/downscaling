@@ -37,13 +37,6 @@ model_unit_conversions =    {"IMAGE": {"Emissions|CO2": 1e6,  # Mt to t
                           }
 
 # **************************GENERAL*******************************************
-# def create_ISO_file_IMAGE():
-#     # Read in GADM ISO codes raster
-#     dir_GADM_raster = "K:/PythonWork/Downscaling/data/output"
-#     file_GADM_raster = "iso_codes_raster_0_50.tif"
-#     filepath_GADM_raster = f"{dir_GADM_raster}/{file_GADM_raster}"
-#     with rasterio.open(filepath_GADM_raster) as src:
-#        print_info_rasterio(src)
 
 def get_IAM_region_info(model="IMAGE"):
     filename_region_grid = ""
@@ -51,56 +44,6 @@ def get_IAM_region_info(model="IMAGE"):
     file_IAM_model_region_numbers = settings_models.models[model]["file_IAM_model_region_numbers"]
 
     return filename_region_grid, file_IAM_model_region_numbers
-
-# def read_grid_info_IAM_regions(project_dir:Path, model:str, filename_region_grid:str, file_IAM_model_region_numbers:str, chunk:int, log: logging.Logger=local_log) -> Tuple[xr.Dataset, dict]:
-#     '''
-#     Input: netcdf file with region definitions; depending on model it includes region numbers, if not, they should be created
-#     Output: xarray dataset with region codes (same as IAMC template) and region numbers (type int) as data variables
-#             The number is zero for OCEAN
-#     '''
-
-#     # init
-#     xr_IAM_regions = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
-#     xr_IAM_regions_processed = xr.Dataset({"region_number": (["index"], np.array([], dtype="U"))})
-#     region_mapping = {}
-
-#     if not filename_region_grid == "":
-#         match model:
-#             case "IMAGE":
-#                 xr_IAM_regions = xr.open_dataset(filename_region_grid, decode_coords="all")
-#                 # Add region codes to IAMC region codes
-#                 csv_path = project_dir / f"data/input/models/{model}/{file_IAM_model_region_numbers}"
-#                 IMAGE_regions = pd.read_csv(csv_path, sep=",")
-#                 region_mapping = dict(zip(IMAGE_regions["number"], IMAGE_regions["region"]))
-#                 log.info(region_mapping)
-
-#                 # process dataset
-#                 xr_IAM_regions_processed = xr_IAM_regions.copy()
-#                 xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"GREG": "region_number"})
-#                 xr_IAM_regions_processed = xr_IAM_regions_processed.isel(time=0, drop=True)
-#                 xr_IAM_regions_processed = xr_IAM_regions_processed.rename({"longitude": "x", "latitude": "y"})
-#                 xr_IAM_regions_processed = xr_IAM_regions_processed.chunk({'y': chunk, 'x': chunk})
-
-#                 # Change Greenland (region 27) to region 11 (Canada)
-#                 xr_IAM_regions_processed['region_number'] = xr_IAM_regions_processed['region_number'].where(xr_IAM_regions_processed['region_number']!=27, 11)
-
-#                 # Add OCEAN region
-#                 region_mapping[0] = "OCEAN"
-#                 region_mapping = dict(sorted(region_mapping.items()))
-#                 log.info(xr_IAM_regions.data_vars)
-#                 log.info(f"Original data variables: {xr_IAM_regions.data_vars}")
-#                 xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].where(~np.isnan(xr_IAM_regions_processed["region_number"]), 0)
-#                 xr_IAM_regions_processed["region_number"] = xr_IAM_regions_processed["region_number"].astype(int)
-
-#                 # Add region code (used in IAMC template)
-#                 vectorized_map = np.vectorize(region_mapping.get)
-#                 xr_IAM_regions_processed['region_code'] = (xr_IAM_regions_processed['region_number'].dims, vectorized_map(xr_IAM_regions_processed['region_number'].values))
-
-#                 log.info("Region numbers and codes in IAM regions dataset:")
-#                 log.info(np.unique(xr_IAM_regions_processed["region_number"]))
-#                 log.info(np.unique(xr_IAM_regions_processed["region_code"]))
-
-    return xr_IAM_regions_processed, region_mapping
 
 def get_regions(project_dir:Path, model:str, file_IAM_model_region_numbers:str) -> Tuple[pd.DataFrame, dict]:
     csv_path = project_dir / file_IAM_model_region_numbers

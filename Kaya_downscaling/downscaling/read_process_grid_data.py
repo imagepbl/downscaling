@@ -43,7 +43,7 @@ import tqdm
 #from downscaling.settings_downscaling import SSP_base
 from tools.functions_logging import init_logging
 from tools.general_functions import PRINT_COLORS, apply_root_json
-from .settings_downscaling_cities import NL_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam
+from .settings_downscaling_cities import NL_bbox, Amsterdam_bbox, Lima_bbox, Raleigh_bbox, NewYork_bbox, lon_MidAtlantic, lat_MidAtlantic, lon_Amsterdam, lat_Amsterdam, lon_Lima, lat_Lima, lon_Raleigh, lat_Raleigh, lon_New_York, lat_New_York
 from downscaling.settings_resolution import DATASETS
 from downscaling.settings_downscaling import CONVERSION_FACTORS
 
@@ -106,6 +106,11 @@ def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: Dataset
     raster1 = raster1.chunk({"x": chunk_size, "y": chunk_size})
     raster2 = raster2.chunk({"x": chunk_size, "y": chunk_size})
 
+    if src1.nodata is not None:
+        raster1 = raster1.where(raster1 != src1.nodata)
+    if src2.nodata is not None:
+        raster2 = raster2.where(raster2 != src2.nodata)
+
     close_map = xr.apply_ufunc(np.isclose, raster1, raster2, kwargs={"rtol": rtol, "atol": atol, "equal_nan": True}, dask="allowed")
     are_close = close_map.all().compute()
     not_close_map = (~close_map).astype(np.uint8).compute()
@@ -114,13 +119,16 @@ def compare_two_raster_files(project_dir:Path, src1:DatasetReader, src2: Dataset
         file_path = project_dir / "not_close_map.tif"
         not_close_map.rio.to_raster(file_path, dtype="uint8")
 
-    difference = raster2 - raster1
+    valid = raster1.notnull() & raster2.notnull()
+    difference = (raster2 - raster1).where(valid)
     has_any_diff = (difference != 0).any().compute()
 
-    # If there are differences, compute statistics
+    # If there are differences, compute statistics.
     diff_stats = None
     if has_any_diff:
         diff_stats = {
+            "mean_1": float(raster1.where(raster1 != src1.nodata).mean().compute()),
+            "mean_2": float(raster2.where(raster2 != src2.nodata).mean().compute()),
             "min": float(difference.min().compute()),
             "max": float(difference.max().compute()),
             "mean": float(difference.mean().compute()),
@@ -281,10 +289,10 @@ def read_in_tiff_to_rio(data_dir: Path, glob_pattern: str, search_pattern: str, 
 
     return ds_rxr
 
-def check_data_locations(da: xr.DataArray, year_check:int) -> list:
-    # add description check_data_locations
+def check_data_locations(da: xr.DataArray, year_check: int) -> list:
     """
-    Checks the locations of a few data points in a raster dataset.
+    Checks the values at a few point locations, the totals within a few bounding boxes,
+    and the global total of a raster dataset.
 
     Parameters:
         da (xr.DataArray): The raster dataset to check.
@@ -292,41 +300,41 @@ def check_data_locations(da: xr.DataArray, year_check:int) -> list:
     Returns: list: A list of information lines about the data locations.
     """
     info_lines = []
-
-    info_lines.append(f"\nCheck data locations:")
+    info_lines.append("\nCheck data locations:")
     info_lines.append(f"Data read with rioxarray: {da}")
-    info_lines.append(f"Tests:")
+    info_lines.append("Tests:")
 
-    # check if 'time' coordinate exists, extract data for 2020
-    if "time" in da.coords:
-        ds_Amsterdam = da.sel(time=year_check, y=lat_Amsterdam, x=lon_Amsterdam, method="nearest")
-        ds_Atlantic = da.sel(time=year_check, y=lat_MidAtlantic, x=lon_MidAtlantic, method="nearest")
-    else:
-        ds_Amsterdam = da.sel(y=lat_Amsterdam, x=lon_Amsterdam, method="nearest")
-        ds_Atlantic = da.sel(y=lat_MidAtlantic, x=lon_MidAtlantic, method="nearest")
+    # select year once, if 'time' coordinate exists (lazy, no data loaded yet)
+    da_year = da.sel(time=year_check) if "time" in da.coords else da
 
-    # add locations
-    info_lines.append(f"\tAmsterdam: {ds_Amsterdam.values:,.1f}")
-    info_lines.append(f"\tMidAtlantic: {ds_Atlantic.values:,.1f}")
+    # point locations --> value of nearest grid cell
+    points = {"Amsterdam": (lon_Amsterdam, lat_Amsterdam), "Lima": (lon_Lima, lat_Lima),
+              "Raleigh": (lon_Raleigh, lat_Raleigh), "New York": (lon_New_York, lat_New_York),
+              "MidAtlantic": (lon_MidAtlantic, lat_MidAtlantic)}
+    for name, (lon, lat) in points.items():
+        value = float(da_year.sel(y=lat, x=lon, method="nearest").values)
+        info_lines.append(f"\t{name}: {value:,.1f}")
 
-    # NL --> sum values within bbox
-    if da.y[0] < da.y[-1]:
-        # Ascending y coordinates (south to north)
-        y_slice = slice(NL_bbox["south"], NL_bbox["north"])
-    else:
-        # Descending y coordinates (north to south)
-        y_slice = slice(NL_bbox["north"], NL_bbox["south"])
+    # bounding boxes --> sum of values within bbox
+    bboxes = {"Netherlands": NL_bbox, "Amsterdam (bbox)": Amsterdam_bbox, "Lima (bbox)": Lima_bbox,
+              "Raleigh (bbox)": Raleigh_bbox, "New York (bbox)": NewYork_bbox}
+    # check order of y coordinates once: ascending (south to north) or descending (north to south)
+    y_ascending = bool(da_year.y[0] < da_year.y[-1])
+    for name, bbox in bboxes.items():
+        if y_ascending:
+            y_slice = slice(bbox["south"], bbox["north"])
+        else:
+            y_slice = slice(bbox["north"], bbox["south"])
+        x_slice = slice(bbox["west"], bbox["east"])
 
-    x_slice = slice(NL_bbox["west"], NL_bbox["east"])
+        bbox_total = float(da_year.sel(x=x_slice, y=y_slice).sum(skipna=True).values)
+        info_lines.append(f"\t{name}: y (lat): {(bbox['south'], bbox['north'])}, "
+                          f"x (lon): {(bbox['west'], bbox['east'])}")
+        info_lines.append(f"\t{name}: {bbox_total:,.1f}")
 
-    info_lines.append(f"\tNetherlands: y (lat): {(NL_bbox['south'], NL_bbox['north'])}, "
-                      f"x (lon): {(NL_bbox['west'], NL_bbox['east'])}")
-
-    if "time" in da.coords:
-        ds_test = da.sel(time=year_check, x=x_slice, y=y_slice).sum(skipna=True)
-    else:
-        ds_test = da.sel(x=x_slice, y=y_slice).sum(skipna=True)
-    info_lines.append(f"\tNetherlands: {ds_test.values:,.1f}")
+    # global total
+    total = float(da_year.sum(skipna=True).values)
+    info_lines.append(f"\tTotal: {total:,.1f}")
 
     return info_lines
 
@@ -827,15 +835,28 @@ def coarsen_save_rio_xarray(ds_rxr: xr.Dataset, factor: float, zero_to_nan:bool,
 
         return ds_coarsened
 
-def calc_total_sum_rio_xarray(da:xr.DataArray, year: int, log:logging.Logger=local_log):
+def calc_total_sum_rio_xarray(dir_processed:Path, da:xr.DataArray, varname: str, year: None|int, log:logging.Logger=local_log):
     # Calculate total sum and count for xarray DataArray
-    da_count = da.sel(time=year)
-    print(f"Calculating total sum for DataArray with shape: {da_count.shape} and dtype: {da_count.dtype}")
-    total_sum = da_count.sum(skipna=True).compute()
-    log.info(f"Total Sum of valid cells: {total_sum:,.2f}")
-    print(f"Total Sum of valid cells: {total_sum:,.2f}")
 
-def count_values_rio_xarray(ds:xr.Dataset, varname:str, year: int, log:logging.Logger=local_log):
+    if year is None:
+        # sum all years (time variable)
+        da_sum = (da.sum(dim=["y", "x"], skipna=True)
+                    .compute()
+                    .to_dataframe(name="value")
+                    .reset_index())
+        da_sum.to_csv(dir_processed / f"global_grid_sum_per_year_{varname.replace('|', '_')}.csv", index=False, sep=";")
+    else:
+        da_sum = (da.sel(time=year)
+                .astype("float64")
+                .sum(skipna=True, min_count=1)
+                .compute()
+                .item())
+        df_sum = pd.DataFrame({"time": [year], "value": [da_sum]})
+        log.info(f"Total Sum of valid cells: {da_sum:,.2f}")
+
+    return da_sum
+
+def count_values_rio_xarray(dir_processed:Path, ds:xr.Dataset, varname:str, year: int, log:logging.Logger=local_log):
     # Count statistics for xarray DataArray
     print(f"Counting values for DataArray with shape: {ds[varname].sel(time=year).shape} and dtype: {ds[varname].dtype}")
 
@@ -868,6 +889,7 @@ def count_values_rio_xarray(ds:xr.Dataset, varname:str, year: int, log:logging.L
     log.info(f"{'*'*250}")
     log.info("Count Statistics:", extra={"summary": True})
     log.info("\n" + df.to_string(index=False), extra={"summary": True})
+    df.to_csv(dir_processed / f"count_grid_statistics_{varname.replace('|', '_')}.csv", index=False)
 
 def calc_total_sum_count_average(src:DatasetReader, chunk_size=512) -> Tuple[float|None, int|None, float|None]:
     '''
@@ -2199,7 +2221,7 @@ def pre_process_data_emissions(varname:str="Emissions|CO2|Excl. shipping, aviati
             log.info(f"Summary of processed data ({varname}, {source}, {version}):\n{tabulate(df_summary, headers="keys", tablefmt="grid", showindex=False, floatfmt=",.6f", intfmt="")}", extra={"summary": True})
 
 def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population", source:str="2UP", version="GHSL_2024_M3", SSP_base="SSP2", base_year:int=2020,
-                                         coarse_factor:float=1, unit:str="", save: bool=False, check: bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path]:
+                                         coarse_factor:float=1, unit:str="", save: bool=False, check: bool=False, log: logging.Logger=local_log) -> Tuple[xr.Dataset, Path, pd.DataFrame]:
     '''
     Read in grid data files for population, GDP, and CO2 emissions
     Parameters:
@@ -2255,11 +2277,12 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     log.info(f"{varname} data:{rxr_SE}")
     da = rxr_SE[varname].isel(time=0)
 
+    # count number of cells for the year 2020: total, zero, positive, negative and nan values
+    df_grid_sum = pd.DataFrame()
     if check:
-        # count number of cells for the year 2020: total, zero, positive, negative and nan values
         log.info(f"\n\n------------check_values_rio_xarray before coarsening--------------------------------------------------------------------")
-        count_values_rio_xarray(rxr_SE, varname, year=year_check, log=log)
-        calc_total_sum_rio_xarray(rxr_SE[varname], year=year_check, log=log)
+        count_values_rio_xarray(dir_processed, rxr_SE, varname, year=year_check, log=log)
+        df_grid_sum = calc_total_sum_rio_xarray(dir_processed, rxr_SE[varname], varname, year=None, log=log)
 
     # check bounds and coordinates
     info_lines = []
@@ -2298,15 +2321,22 @@ def read_process_grid_data_socioeconomic(dir_processed:Path, varname="Population
     if check:
         # count number of cells for the year 2020: total, zero, positive, negative and nan values
         log.info(f"\n\n------------check_values_rio_xarray after coarsening--------------------------------------------------------------------")
-        count_values_rio_xarray(rxr_SE_coarsened, varname, year=year_check, log=log)
-        calc_total_sum_rio_xarray(rxr_SE_coarsened[varname], year=year_check, log=log)
+        count_values_rio_xarray(dir_processed, rxr_SE_coarsened, varname, year=year_check, log=log)
+        df_grid_sum = calc_total_sum_rio_xarray(dir_processed, rxr_SE_coarsened[varname], varname, year=year_check, log=log)
 
     # change to $2005 dollars
     if "GDP" in varname:
-        conv_factor = CONVERSION_FACTORS[(2017, 2005)]
+        match (source, version):
+            case ("Wang", "version_7") | ("Murakami", "version_2021_1"):
+                conv_factor = 1
+            case ("COMPASS", "version_2"):
+                conv_factor = CONVERSION_FACTORS[(2017, 2005)]
+            case _:
+                conv_factor = 1.0
+                log.info(f"{PRINT_COLORS['red']}No conversion factor found for {source} {version}, leaving GDP values unchanged.{PRINT_COLORS['end']}")
         rxr_SE_coarsened[varname] *= conv_factor
 
-    return rxr_SE_coarsened, rxr_filepath
+    return rxr_SE_coarsened, rxr_filepath, df_grid_sum
 
 def _clean_dataset_for_netcdf(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     """
@@ -2390,8 +2420,8 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                     if check:
                         # count number of cells for the year 2020: total, zero, positive, negative and nan values
                         log.info(f"\n\n------------check_values_rio_xarray before coarsening--({varname}, {source}, {version})----------------------------------")
-                        count_values_rio_xarray(ds_emissions_CO2_excl_bunkers, varname, year=year_check, log=log)
-                        calc_total_sum_rio_xarray(ds_emissions_CO2_excl_bunkers[varname], year=year_check, log=log)
+                        count_values_rio_xarray(dir_processed, ds_emissions_CO2_excl_bunkers, varname, year=year_check, log=log)
+                        df_grid_sum = calc_total_sum_rio_xarray(dir_processed, ds_emissions_CO2_excl_bunkers[varname], varname, year=year_check, log=log)
 
                     # 3. coarsen and save file
                     log.info("Factor is 1, directly saving to netcdf, without coarsening")
@@ -2411,8 +2441,8 @@ def read_process_grid_data_EM(dir_processed:Path, varname="Emissions_CO2_Excl_sh
                         # count number of cells for the year 2020: total, zero, positive, negative and nan values
                         log.info(f"\n\n------------check_values_rio_xarray after coarsening--({varname}, {source}, {version})----------------------------------")
                         if ds_emissions_CO2_excl_bunkers_coarsened is not None:
-                            count_values_rio_xarray(ds_emissions_CO2_excl_bunkers_coarsened, varname, year=year_check, log=log)
-                            calc_total_sum_rio_xarray(ds_emissions_CO2_excl_bunkers_coarsened[varname], year=year_check, log=log)
+                            count_values_rio_xarray(dir_processed, ds_emissions_CO2_excl_bunkers_coarsened, varname, year=year_check, log=log)
+                            df_grid_sum = calc_total_sum_rio_xarray(dir_processed, ds_emissions_CO2_excl_bunkers_coarsened[varname], varname, year=year_check, log=log)
         case "CEDS_CMIP7":
             match version:
                 case "2025_04_18":

@@ -24,11 +24,13 @@
             //"args": ["--downscale_population", "--scenario", "IMAGE 3.4_Low - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "second_round", "--ssp_baseline", "SSP2"],
             //"args": ["--downscale_gdp_ppp", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
 
-            "args": ["--downscale_emissions", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "base_run", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
-            //"args": ["--plot", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "base_run", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net"],
+            "args": ["--downscale_emissions", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "test_run", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net", "--downscale_SE", "yes"],
+            //"args": ["--plot", "--scenario", "IMAGE 3.4_Medium - SSP2", "--model", "IMAGE_ScenarioMIP", "--profile", "sensitivity_3", "--ssp_baseline", "SSP2", "--convergence_year", "2150", "--emissions", "net", "--downscale_SE", "yes"],
+            //"args" : ["--compare_dirs", "--dir1", "data/processed/test_run_no_downscale_SE/IMAGE_ScenarioMIP_IMAGE 3.4_Low - SSP2_conv_year_2150_net", "--dir2", "data/processed/test_run_downscale_SE/IMAGE_ScenarioMIP_IMAGE 3.4_Low - SSP2_conv_year_2150_net", "--filename", "Emissions_CO2_Excl_shipping_aviation_AFOLU_harmonised_IMAGE_ScenarioMIP_IMAGE 3.4_Low - SSP2"]
 
-            //"args": ["--plot", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round",  "--emissions", "net", "--global_min", "-0.007856", "--global_max", "0.120754"],
-            //"args": ["--upload", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round"],
+
+            //"args": ["--plot", "--scenario", "ELV-SSP2-CP", "--model", "IMAGE", "--profile", "second_round",  "--emissions", "net", "--global_min", "-0.007856", "--global_max]", "0.120754"],
+            //"args": ["--upload", "--scenario", "ELV-SSP2-CP]", "--model]", "IMAGE]", "--profile]", "second_round"],
             //"args": ["--compare"],
             "env": {
                 "CONDA_PREFIX": "${workspaceFolder}\\.pixi\\envs\\default",

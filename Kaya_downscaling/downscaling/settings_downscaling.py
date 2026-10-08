@@ -2,6 +2,46 @@
 # Source profiles
 # ---------------------------------------------------------------------------
 SOURCE_PROFILES = {
+    "test_run": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
+    "test_run_POP": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
+    "test_run_GDP": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
+    "test_run_EM": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
+    "test_run_POP_GDP_EM": {
+        "source_POP": "2UP",
+        "version_POP": "GHSL_2024_M3",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
+        "source_GDP": "Murakami",
+        "version_GDP": "version_2021_1",  # options: "version_7", "version_3"
+        "source_EM":  "EDGAR",
+        "version_EM": "2024",       # options: "2024", "2025_04_18"
+    },
     "sensitivity_Zhuang": {
         "source_POP": "Zhuang",
         "version_POP": "version_1",   # options: "M3", "GHSL_2024_M1", "M1", "version_2", "version_3"
@@ -98,14 +138,14 @@ process_flags = {
     "downscale_grid_POP": False,
     "read_process_grid_GDP_PPP": False,
     "read_process_grid_GDPpc": False,
-    #"downscale_grid_GDP_PPP": False,
     "read_process_grid_EM": False,
     "process_IAM_GDP_per_POP": False,
-    "downscale_grid_GDPpc": False,
+    "downscale_grid_GDP_per_capita": False,
     "process_grid_GDP_POP": False,
     "process_grid_GDP_per_POP": False,
-    "process_IAM_EM_per_GDP": True,
-    "process_grid_EM_per_GDP": True,
+    "process_IAM_EM_per_GDP": False,
+    "process_grid_EM_per_GDP": False,
+    "process_grid_EM": True,
 
     "process_urban_classification_emissions": True,
     "process_urban_classification_population": True,
@@ -121,10 +161,11 @@ check_flags = {
     "check_GDP_POP": False,
     "check_IAM_data": False,
     "check_IAM_grid_data": False,
-    "check_grid_GDP_per_pop": False,
-    "check_IAM_GDP_per_pop": False,
+    "check_grid_GDP_per_capita": False,
+    "check_IAM_GDP_per_capita": False,
     "check_SE_correction_factors": False,
     "check_SE_harmonised": False,
+    "check_grid_EM": False,
 }
 
 # ---------------------------------------------------------------------------
@@ -133,8 +174,8 @@ check_flags = {
 varname_POP = "Population"
 varname_GDP = "GDP|PPP"
 varname_EM  = "Emissions_CO2_Excl_shipping_aviation_AFOLU"
-varname_gdp_per_pop = "GDP (PPP) per capita"
-varname_em_per_gdp_ppp = f"{varname_EM}_per_{varname_gdp_per_pop}"  # derived
+varname_gdp_per_capita = "GDP (PPP) per capita"
+varname_em_per_gdp_ppp = f"{varname_EM}_per_{varname_gdp_per_capita}"  # derived
 
 # ---------------------------------------------------------------------------
 # Units
